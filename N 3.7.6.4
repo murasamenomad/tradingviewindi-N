@@ -165,30 +165,14 @@ get_line_from_pool() => // Function to get a line object from the pool
     initialize_object_pools()
     line result = na
     int pool_size = array.size(line_pool)
-    int search_start = 0
-    int search_end = pool_size - 1
-    while search_start <= search_end and na(result)
-        int mid = search_start + (search_end - search_start) / 2
-        if not array.get(line_used_map, mid)
-            array.set(line_used_map, mid, true)
-            result := array.get(line_pool, mid)
+    
+    // Simplified single linear scan
+    for i = 0 to pool_size - 1
+        if not array.get(line_used_map, i)
+            array.set(line_used_map, i, true)
+            result := array.get(line_pool, i)
             break
-        else if mid < pool_size / 2
-            search_start := mid + 1
-        else
-            search_end := mid - 1
-    if na(result) // Fallback: search from the beginning
-        for i = 0 to math.min(9, pool_size - 1)
-            if not array.get(line_used_map, i)
-                array.set(line_used_map, i, true)
-                result := array.get(line_pool, i)
-                break
-    if na(result) // Fallback: search the rest
-        for i = 10 to pool_size - 1
-            if not array.get(line_used_map, i)
-                array.set(line_used_map, i, true)
-                result := array.get(line_pool, i)
-                break
+            
     if na(result) // If pool is exhausted, create a new one
         new_line = line.new(x1=0, y1=0, x2=0, y2=0, color=color.white, width=1, xloc=xloc.bar_time, style=DEFAULT_LINE_STYLE)
         array.push(line_pool, new_line)
@@ -200,30 +184,14 @@ get_label_from_pool() => // Function to get a label object from the pool
     initialize_object_pools()
     label result = na
     int pool_size = array.size(label_pool)
-    int search_start = 0
-    int search_end = pool_size - 1
-    while search_start <= search_end and na(result)
-        int mid = search_start + (search_end - search_start) / 2
-        if not array.get(label_used_map, mid)
-            array.set(label_used_map, mid, true)
-            result := array.get(label_pool, mid)
+
+    // Simplified single linear scan
+    for i = 0 to pool_size - 1
+        if not array.get(label_used_map, i)
+            array.set(label_used_map, i, true)
+            result := array.get(label_pool, i)
             break
-        else if mid < pool_size / 2
-            search_start := mid + 1
-        else
-            search_end := mid - 1
-    if na(result) // Fallback: search from the beginning
-        for i = 0 to math.min(9, pool_size - 1)
-            if not array.get(label_used_map, i)
-                array.set(label_used_map, i, true)
-                result := array.get(label_pool, i)
-                break
-    if na(result) // Fallback: search the rest
-        for i = 10 to pool_size - 1
-            if not array.get(label_used_map, i)
-                array.set(label_used_map, i, true)
-                result := array.get(label_pool, i)
-                break
+            
     if na(result) // If pool is exhausted, create a new one
         new_label = label.new(x=0, y=0, text="", color=color.white, textcolor=color.black, style=DEFAULT_LABEL_STYLE, xloc=xloc.bar_time, text_font_family=FONT_MONO)
         array.push(label_pool, new_label)
@@ -972,42 +940,49 @@ if vp_enable
                 array.push(vp_volume_values, 0)
 
             // Aggregate volume from lower timeframe data
-            // Iterate from the start of the profile period up to the second to last bar (or current bar if islast)
+            float _price_step = (vp_rows > 1 and profile_high_price > profile_low_price) ? (profile_high_price - profile_low_price) / (vp_rows - 1) : 0.0
+
             int end_bar_offset = barstate.islast ? 0 : 1
             for i = lookback_bars - end_bar_offset to 0 // Iterate over bars in the current profile period
-                vol_at_bar_arr = ltf_V_arr[i] // Volume array for the i-th bar back from current
+                vol_at_bar_arr = ltf_V_arr[i] 
                 high_at_bar_arr = ltf_H_arr[i]
                 low_at_bar_arr = ltf_L_arr[i]
 
                 if array.size(vol_at_bar_arr) > 0
-                    for row_idx = 0 to array.size(vp_volume_values) - 1
-                        current_row_price = array.get(vp_y_coords, row_idx)
-                        for k = 0 to array.size(vol_at_bar_arr) - 1
-                            ltf_bar_high = array.get(high_at_bar_arr, k)
-                            ltf_bar_low = array.get(low_at_bar_arr, k)
-                            ltf_bar_vol = array.get(vol_at_bar_arr, k)
+                    for k = 0 to array.size(vol_at_bar_arr) - 1 // Iterate over LFT bars within the main bar
+                        float ltf_bar_high = array.get(high_at_bar_arr, k)
+                        float ltf_bar_low = array.get(low_at_bar_arr, k)
+                        float ltf_bar_vol = array.get(vol_at_bar_arr, k)
 
-                            if ltf_bar_high >= current_row_price and ltf_bar_low <= current_row_price and ltf_bar_vol > 0
-                                // Distribute volume to the row
-                                // Simplified distribution: add volume if price level is touched
-                                // More precise distribution would consider how much of the ltf_bar range overlaps the row
-                                price_range_per_row = (profile_high_price - profile_low_price) / (vp_rows -1)
-                                ltf_bar_price_range = ltf_bar_high - ltf_bar_low
+                        if ltf_bar_vol > 0
+                            if profile_high_price > profile_low_price and _price_step > 0 // Profile has height and valid step
+                                int start_row_idx = math.max(0, math.round((ltf_bar_low - profile_low_price) / _price_step))
+                                int end_row_idx = math.min(vp_rows - 1, math.round((ltf_bar_high - profile_low_price) / _price_step))
                                 
-                                float volume_to_add = 0.0
-                                if price_range_per_row > 0 and ltf_bar_price_range > 0
-                                    // Approximate volume distribution based on price levels covered
-                                    volume_to_add := math.round(ltf_bar_vol / (ltf_bar_price_range / price_range_per_row))
-                                else if price_range_per_row == 0 and ltf_bar_price_range == 0 // Single price tick
-                                    volume_to_add := ltf_bar_vol
-                                else // Fallback for safety, though should ideally not happen with valid data
-                                    volume_to_add := ltf_bar_vol / vp_rows
+                                if start_row_idx < vp_rows and end_row_idx >= 0 and start_row_idx <= end_row_idx
+                                    int num_rows_spanned = end_row_idx - start_row_idx + 1
+                                    float vol_per_spanned_row = ltf_bar_vol / num_rows_spanned
+                                    
+                                    for j = start_row_idx to end_row_idx
+                                        if j >= 0 and j < vp_rows // Defensive check
+                                            array.set(vp_volume_values, j, array.get(vp_volume_values, j) + vol_per_spanned_row)
+                            
+                            else if profile_high_price == profile_low_price // Profile is flat (single price level)
+                                // If ltf bar is within this single price level, add its volume to the first row
+                                // (All rows are effectively at this price if vp_rows > 1, or just row 0 if vp_rows = 1)
+                                if ltf_bar_low <= profile_low_price and ltf_bar_high >= profile_low_price
+                                    if vp_rows > 0 // Ensure there's at least one row
+                                        array.set(vp_volume_values, 0, array.get(vp_volume_values, 0) + ltf_bar_vol)
+                            // else: ltf_bar_vol > 0 but profile has no height and step is not positive, or ltf_bar is outside flat profile.
+                            // This case implies that the ltf_bar does not fall into any valid row, so its volume is not added.
+                            // Or, if vp_rows = 1 and profile has height, _price_step is 0. Add to row 0 if it overlaps.
+                            else if vp_rows == 1 and ltf_bar_low <= profile_high_price and ltf_bar_high >= profile_low_price
+                                array.set(vp_volume_values, 0, array.get(vp_volume_values, 0) + ltf_bar_vol)
 
 
-                                array.set(vp_volume_values, row_idx, array.get(vp_volume_values, row_idx) + volume_to_add)
-            
             // Find VPOC (price level with max volume)
-            max_volume_for_poc = array.max(vp_volume_values)
+            // Ensure vp_volume_values is not empty before calling array.max, though it's initialized with vp_rows elements.
+            max_volume_for_poc = array.size(vp_volume_values) > 0 ? array.max(vp_volume_values) : 0.0
             poc_price = array.get(vp_y_coords, array.indexof(vp_volume_values, max_volume_for_poc))
 
             // 计算Value Area（包含70%总成交量的区域）
@@ -1359,20 +1334,32 @@ if barstate.islast
 // ---- Plot Monday Range Lines ----
 var line prevMonHighLine = na
 var line prevMonLowLine = na
-if show_MondayRange and not na(prevMondayHigh) and not na(prevMondayStartBar) and not na(prevWeekEndBar)
-    if not na(prevMonHighLine[1])
-        return_line_to_pool(prevMonHighLine[1])
-        prevMonHighLine := na 
-    if not na(prevMonLowLine[1])
-        return_line_to_pool(prevMonLowLine[1])
-        prevMonLowLine := na 
+var bool prevMondayLinesDrawn = false // State for previous Monday lines
 
+var line currMonHighLine = na
+var line currMonLowLine = na
+var float lastPlottedMondayHigh = na // Store last plotted value
+var float lastPlottedMondayLow = na  // Store last plotted value
+var int lastPlottedMondayStartTime = na // Store last plotted start time
+var bool currentMondayLinesActive = false // State for current Monday lines
+
+// Manage Previous Monday lines
+if isNewWeek or (prevMondayLinesDrawn and not show_MondayRange)
+    if not na(prevMonHighLine)
+        return_line_to_pool(prevMonHighLine)
+        prevMonHighLine := na
+    if not na(prevMonLowLine)
+        return_line_to_pool(prevMonLowLine)
+        prevMonLowLine := na
+    prevMondayLinesDrawn := false
+
+if show_MondayRange and isNewWeek and not na(prevMondayHigh) and not na(prevMondayStartBar) and not na(prevWeekEndBar)
     int safe_prev_monday_start = na
     if not na(prevMondayStartBar) and bar_index - prevMondayStartBar >= 0
         safe_prev_monday_start := math.min(4900, math.max(0, bar_index - prevMondayStartBar))
     
     int safe_prev_week_end = na
-    if not na(prevWeekEndBar) and bar_index - prevWeekEndBar >=0
+    if not na(prevWeekEndBar) and bar_index - prevWeekEndBar >= 0
         safe_prev_week_end := math.min(4900, math.max(0, bar_index - prevWeekEndBar))
     
     if not na(safe_prev_monday_start) and not na(safe_prev_week_end)
@@ -1393,56 +1380,80 @@ if show_MondayRange and not na(prevMondayHigh) and not na(prevMondayStartBar) an
             prevMonLowLine.set_color(color=color_PrevMonday)
             prevMonLowLine.set_width(width=1)
             prevMonLowLine.set_style(style=line.style_dotted)
+            prevMondayLinesDrawn := true
 
-var line currMonHighLine = na
-var line currMonLowLine = na
-if show_MondayRange and not na(mondayHigh) and not na(mondayStartBar) and not isNewWeek
-    int mondayStartTime = na
-    int safe_monday_start = na
-    if not na(mondayStartBar) and bar_index - mondayStartBar >= 0
-        safe_monday_start := math.min(4900, math.max(0, bar_index - mondayStartBar))
-        mondayStartTime := time[safe_monday_start]
-    
-    if na(currMonHighLine) or isNewWeek[1] 
-        if not na(currMonHighLine[1])
-            return_line_to_pool(currMonHighLine[1]) 
-        if not na(currMonLowLine[1])
-            return_line_to_pool(currMonLowLine[1])  
-
-        if not na(mondayStartTime)
-            currMonHighLine := get_line_from_pool()
-            currMonHighLine.set_xy1(x=mondayStartTime, y=mondayHigh)
-            currMonHighLine.set_xy2(x=time, y=mondayHigh)
-            currMonHighLine.set_color(color=color_CurrMonday)
-            currMonHighLine.set_width(width=1)
-            currMonHighLine.set_style(style=line.style_dotted)
-            
-            currMonLowLine := get_line_from_pool()
-            currMonLowLine.set_xy1(x=mondayStartTime, y=mondayLow)
-            currMonLowLine.set_xy2(x=time, y=mondayLow)
-            currMonLowLine.set_color(color=color_CurrMonday)
-            currMonLowLine.set_width(width=1)
-            currMonLowLine.set_style(style=line.style_dotted)
-    else 
-        if not na(mondayStartTime) and not na(currMonHighLine) and not na(currMonLowLine)
-            currMonHighLine.set_xy1(x=mondayStartTime, y=mondayHigh)
-            currMonHighLine.set_xy2(x=time, y=mondayHigh)
-            currMonLowLine.set_xy1(x=mondayStartTime, y=mondayLow)
-            currMonLowLine.set_xy2(x=time, y=mondayLow)
-            
-else if not show_MondayRange or isNewWeek 
+// Manage Current Monday lines
+if isNewWeek and currentMondayLinesActive // Cleanup at the start of a new week
     if not na(currMonHighLine)
         return_line_to_pool(currMonHighLine)
         currMonHighLine := na
     if not na(currMonLowLine)
         return_line_to_pool(currMonLowLine)
         currMonLowLine := na
-    if isNewWeek // Also clean up previous week's lines if a new week starts, regardless of show_MondayRange
-        if not na(prevMonHighLine)
-            return_line_to_pool(prevMonHighLine) 
-            prevMonHighLine := na                
-        if not na(prevMonLowLine)
-            return_line_to_pool(prevMonLowLine)  
-            prevMonLowLine := na                 
+    lastPlottedMondayHigh := na
+    lastPlottedMondayLow := na
+    lastPlottedMondayStartTime := na
+    currentMondayLinesActive := false
+
+if barstate.islast
+    if show_MondayRange and not na(mondayHigh) and not na(mondayLow) and not na(mondayStartBar)
+        int mondayStartTimeValue = na
+        int safe_monday_start_idx = na
+        if bar_index - mondayStartBar >= 0
+            safe_monday_start_idx := math.min(4900, math.max(0, bar_index - mondayStartBar))
+            mondayStartTimeValue := time[safe_monday_start_idx]
+
+        if not na(mondayStartTimeValue)
+            if not currentMondayLinesActive // Create lines
+                currMonHighLine := get_line_from_pool()
+                currMonLowLine := get_line_from_pool()
+                
+                currMonHighLine.set_xy1(x=mondayStartTimeValue, y=mondayHigh)
+                currMonHighLine.set_xy2(x=time, y=mondayHigh)
+                currMonHighLine.set_color(color=color_CurrMonday)
+                currMonHighLine.set_width(width=1)
+                currMonHighLine.set_style(style=line.style_dotted)
+                
+                currMonLowLine.set_xy1(x=mondayStartTimeValue, y=mondayLow)
+                currMonLowLine.set_xy2(x=time, y=mondayLow)
+                currMonLowLine.set_color(color=color_CurrMonday)
+                currMonLowLine.set_width(width=1)
+                currMonLowLine.set_style(style=line.style_dotted)
+                
+                lastPlottedMondayHigh := mondayHigh
+                lastPlottedMondayLow := mondayLow
+                lastPlottedMondayStartTime := mondayStartTimeValue
+                currentMondayLinesActive := true
+            else // Lines exist, update them
+                bool needsYUpdate = lastPlottedMondayHigh != mondayHigh or lastPlottedMondayLow != mondayLow
+                bool needsX1Update = lastPlottedMondayStartTime != mondayStartTimeValue
+                
+                if needsX1Update
+                    currMonHighLine.set_x1(x=mondayStartTimeValue)
+                    currMonLowLine.set_x1(x=mondayStartTimeValue)
+                    lastPlottedMondayStartTime := mondayStartTimeValue
+                
+                if needsYUpdate
+                    currMonHighLine.set_y1(y=mondayHigh)
+                    currMonHighLine.set_y2(y=mondayHigh)
+                    currMonLowLine.set_y1(y=mondayLow)
+                    currMonLowLine.set_y2(y=mondayLow)
+                    lastPlottedMondayHigh := mondayHigh
+                    lastPlottedMondayLow := mondayLow
+                
+                currMonHighLine.set_x2(x=time)
+                currMonLowLine.set_x2(x=time)
+
+    else if currentMondayLinesActive // show_MondayRange is false or not Monday anymore
+        if not na(currMonHighLine)
+            return_line_to_pool(currMonHighLine)
+            currMonHighLine := na
+        if not na(currMonLowLine)
+            return_line_to_pool(currMonLowLine)
+            currMonLowLine := na
+        lastPlottedMondayHigh := na
+        lastPlottedMondayLow := na
+        lastPlottedMondayStartTime := na
+        currentMondayLinesActive := false
 
 // END OF SCRIPT
