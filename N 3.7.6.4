@@ -17,9 +17,11 @@ var int KEYLEVEL_LINE_LENGTH = 3
 
 // ==== Rolling VWAP Settings ====
 group_rvwap = '滚动VWAP设置 (Rolling VWAP)'
+show_7d = input.bool(true, '显示7天 (Show 7D)', group=group_rvwap)
 show_30d = input.bool(true, '显示30天 (Show 30D)', group=group_rvwap)
 show_90d = input.bool(true, '显示90天 (Show 90D)', group=group_rvwap)
 show_365d = input.bool(true, '显示365天 (Show 365D)', group=group_rvwap)
+color_7d = input.color(color.new(#81C784, 40), '7D颜色 (Color)', group=group_rvwap, inline='7d')
 color_30d = input.color(color.new(#FF9800, 40), '30D颜色 (Color)', group=group_rvwap, inline='30d')
 color_90d = input.color(color.new(#9C27B0, 40), '90D颜色 (Color)', group=group_rvwap, inline='90d')
 color_365d = input.color(color.new(#BDBDBD, 40), '365D颜色 (Color)', group=group_rvwap, inline='365d')
@@ -784,10 +786,12 @@ cached_quarter := current_quarter
 cached_dayofweek := current_dayofweek
 
 bool is_small_tf = timeframe.in_seconds(timeframe.period) <= timeframe.in_seconds("60") 
+rvwap_7d_raw = is_small_tf ? f_rolling_vwap_for_small_tf(7, rvwap_ref_tf) : f_rolling_vwap(7)
 rvwap_30d_raw = is_small_tf ? f_rolling_vwap_for_small_tf(30, rvwap_ref_tf) : f_rolling_vwap(30)
 rvwap_90d_raw = is_small_tf ? f_rolling_vwap_for_small_tf(90, rvwap_ref_tf) : f_rolling_vwap(90)
 rvwap_365d_raw = is_small_tf ? f_rolling_vwap_for_small_tf(365, rvwap_ref_tf) : f_rolling_vwap(365)
 
+rvwap_7d = ta.sma(rvwap_7d_raw, rvwap_smoothing)
 rvwap_30d = ta.sma(rvwap_30d_raw, rvwap_smoothing)
 rvwap_90d = ta.sma(rvwap_90d_raw, rvwap_smoothing)
 rvwap_365d = ta.sma(rvwap_365d_raw, rvwap_smoothing)
@@ -1231,6 +1235,7 @@ if vp_enable
 // ==== PLOTTING ====
 // =============================================================================
 
+plot(show_7d ? rvwap_7d : na, title='7D RVWAP', color=color_7d, linewidth=1)
 plot(show_30d ? rvwap_30d : na, title='30D RVWAP', color=color_30d, linewidth=1)
 plot(show_90d ? rvwap_90d : na, title='90D RVWAP', color=color_90d, linewidth=1)
 plot(show_365d ? rvwap_365d : na, title='365D RVWAP', color=color_365d, linewidth=1)
