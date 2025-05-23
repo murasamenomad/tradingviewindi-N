@@ -1100,13 +1100,13 @@ if vp_enable
             // Handle VPOC lines and labels
             if is_new_vp_period
                 // 添加当前的VP图形到历史数组中
-                if vp_show_historical and not na(vp_current_profile_polyline) and not na(vp_last_profile_low) and not na(vp_last_profile_high)
+                if vp_show_historical and not na(vp_current_profile_polyline) // profile_low_price and profile_high_price would have been calculated for the period
                     // 创建一个新的点数组用于历史VP
                     var array<chart.point> historical_points = array.new<chart.point>()
                     array.clear(historical_points)
                     
                     // 添加底部点
-                    array.push(historical_points, chart.point.from_time(vp_last_time_profile_start, vp_last_profile_low))
+                    array.push(historical_points, chart.point.from_time(vp_last_time_profile_start, profile_low_price))
                     
                     // 添加右侧点
                     for i = 0 to array.size(vp_x_coords) - 1
@@ -1114,7 +1114,7 @@ if vp_enable
                             array.push(historical_points, chart.point.from_time(array.get(vp_x_coords, i), array.get(vp_y_coords, i)))
                     
                     // 添加顶部点
-                    array.push(historical_points, chart.point.from_time(vp_last_time_profile_start, vp_last_profile_high))
+                    array.push(historical_points, chart.point.from_time(vp_last_time_profile_start, profile_high_price))
                     
                     // 创建历史VP图形
                     if array.size(historical_points) > 2
