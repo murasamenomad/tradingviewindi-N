@@ -558,12 +558,12 @@ f_calculate_current_vwap_adaptive(src, is_active, anchor_period) => // Function 
         else if anchor_period == 'Day'
             vwap_type := 'daily'
         ref_tf = get_adaptive_anchor_tf(vwap_type)
-        isWeekStart = dayofweek(time) == dayofweek.monday and (dayofweek(time[1]) != dayofweek.monday)
-        isMonthStart = month(time) != month(time[1])
-        isQuarterStart = get_quarter(time) != get_quarter(time[1])
-        isYearStart = year(time) != year(time[1])
-        isDayStart = dayofmonth(time) != dayofmonth(time[1]) or month(time) != month(time[1])
-        period_start_condition = anchor_period == 'Week' ? isWeekStart : anchor_period == 'Month' ? isMonthStart : anchor_period == 'Quarter' ? isQuarterStart : anchor_period == 'Year' ? isYearStart : anchor_period == 'Day' ? isDayStart : true
+        // Removed local definitions: isWeekStart, isMonthStart, isQuarterStart, isYearStart, isDayStart
+        period_start_condition = anchor_period == 'Week' ? isNewWeek :
+                                 anchor_period == 'Month' ? isNewMonth :
+                                 anchor_period == 'Quarter' ? isNewQuarter :
+                                 anchor_period == 'Year' ? isNewYear :
+                                 anchor_period == 'Day' ? isNewDay : true 
         reset_condition = request.security(syminfo.tickerid, ref_tf, period_start_condition, gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
         [vwap_value_sec, upper_band_sec, lower_band_sec] = request.security(syminfo.tickerid, ref_tf, calculate_basic_vwap(src, reset_condition), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
         vwapValue := vwap_value_sec
@@ -590,7 +590,12 @@ get_fixed_tf_vwap(src, period_type) => // Function to get VWAP for a fixed timef
     else if period_type == 'D'
         vwap_type := 'daily'
     ref_tf = get_adaptive_anchor_tf(vwap_type)
-    reset_condition_sec = request.security(syminfo.tickerid, ref_tf, period_type == 'W' ? dayofweek(time) == dayofweek.monday and (dayofweek(time[1]) != dayofweek.monday) : period_type == 'M' ? month(time) != month(time[1]) : period_type == 'Q' ? get_quarter(time) != get_quarter(time[1]) : period_type == 'Y' ? year(time) != year(time[1]) : period_type == 'D' ? dayofmonth(time) != dayofmonth(time[1]) or month(time) != month(time[1]) : false, gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+    bool period_change_htf = period_type == 'W' ? isNewWeek :
+                             period_type == 'M' ? isNewMonth :
+                             period_type == 'Q' ? isNewQuarter :
+                             period_type == 'Y' ? isNewYear :
+                             period_type == 'D' ? isNewDay : false
+    reset_condition_sec = request.security(syminfo.tickerid, ref_tf, period_change_htf, gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
     [vwap_value_sec, upper_band_sec, lower_band_sec] = request.security(syminfo.tickerid, ref_tf, calculate_basic_vwap(src, reset_condition_sec), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
     [vwap_value_sec, upper_band_sec, lower_band_sec]
 
@@ -958,30 +963,30 @@ if vp_enable
                         float ltf_bar_low = array.get(low_at_bar_arr, k)
                         float ltf_bar_vol = array.get(vol_at_bar_arr, k)
 
-                        if ltf_bar_vol > 0
-                            if profile_high_price > profile_low_price and _price_step > 0 // Profile has height and valid step
+                        if ltf_bar_vol > 0:
+                            if _price_step > 0.0: // Explicitly check _price_step is positive before division
                                 int start_row_idx = math.max(0, math.round((ltf_bar_low - profile_low_price) / _price_step))
                                 int end_row_idx = math.min(vp_rows - 1, math.round((ltf_bar_high - profile_low_price) / _price_step))
                                 
-                                if start_row_idx < vp_rows and end_row_idx >= 0 and start_row_idx <= end_row_idx
+                                if start_row_idx < vp_rows and end_row_idx >= 0 and start_row_idx <= end_row_idx:
                                     int num_rows_spanned = end_row_idx - start_row_idx + 1
                                     float vol_per_spanned_row = ltf_bar_vol / num_rows_spanned
                                     
-                                    for j = start_row_idx to end_row_idx
-                                        if j >= 0 and j < vp_rows // Defensive check
+                                    for j = start_row_idx to end_row_idx:
+                                        if j >= 0 and j < vp_rows: // Defensive check
                                             array.set(vp_volume_values, j, array.get(vp_volume_values, j) + vol_per_spanned_row)
                             
-                            else if profile_high_price == profile_low_price // Profile is flat (single price level)
+                            else if profile_high_price == profile_low_price: // Handles flat profile where _price_step is 0
                                 // If ltf bar is within this single price level, add its volume to the first row
                                 // (All rows are effectively at this price if vp_rows > 1, or just row 0 if vp_rows = 1)
-                                if ltf_bar_low <= profile_low_price and ltf_bar_high >= profile_low_price
-                                    if vp_rows > 0 // Ensure there's at least one row
+                                if ltf_bar_low <= profile_low_price and ltf_bar_high >= profile_low_price:
+                                    if vp_rows > 0: // Ensure there's at least one row
                                         array.set(vp_volume_values, 0, array.get(vp_volume_values, 0) + ltf_bar_vol)
-                            // else: ltf_bar_vol > 0 but profile has no height and step is not positive, or ltf_bar is outside flat profile.
-                            // This case implies that the ltf_bar does not fall into any valid row, so its volume is not added.
-                            // Or, if vp_rows = 1 and profile has height, _price_step is 0. Add to row 0 if it overlaps.
-                            else if vp_rows == 1 and ltf_bar_low <= profile_high_price and ltf_bar_high >= profile_low_price
-                                array.set(vp_volume_values, 0, array.get(vp_volume_values, 0) + ltf_bar_vol)
+                            
+                            else if vp_rows == 1: // Handles vp_rows = 1 case, where _price_step is also 0
+                                // Add to row 0 if it overlaps, as _price_step would be 0 if profile_high_price > profile_low_price
+                                if ltf_bar_low <= profile_high_price and ltf_bar_high >= profile_low_price:
+                                     array.set(vp_volume_values, 0, array.get(vp_volume_values, 0) + ltf_bar_vol)
 
 
             // Find VPOC (price level with max volume)
@@ -1102,7 +1107,7 @@ if vp_enable
                 // 添加当前的VP图形到历史数组中
                 if vp_show_historical and not na(vp_current_profile_polyline) // profile_low_price and profile_high_price would have been calculated for the period
                     // 创建一个新的点数组用于历史VP
-                    var array<chart.point> historical_points = array.new<chart.point>()
+                    array<chart.point> historical_points = array.new<chart.point>()
                     array.clear(historical_points)
                     
                     // 添加底部点
@@ -1130,7 +1135,7 @@ if vp_enable
                             
                     // 如果有Value Area数据，也保存为历史Value Area
                     if not na(vp_value_area_low_idx) and not na(vp_value_area_high_idx) and array.size(vp_value_area_points_array) > 2
-                        var array<chart.point> historical_va_points = array.new<chart.point>()
+                        array<chart.point> historical_va_points = array.new<chart.point>()
                         array.clear(historical_va_points)
                         
                         // 复制当前的Value Area点到历史Value Area
