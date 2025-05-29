@@ -123,6 +123,9 @@ vp_max_history = input.int(3, '历史VP数量 (Max History)', 1, 10, tooltip = '
 vp_show_poc = input.bool(true, '显示VPOC (Show VPOC)', inline = 'VPOC_Display', tooltip = '是否显示成交量控制点 (VPOC)', group = group_vp)
 vp_poc_color = input.color(color.new(#CFD8DC, 0), '', inline = 'VPOC_Display', group = group_vp)
 vp_rows = input.int(200, '行数 (Rows)', 10, 500, tooltip = '用于构建成交量分布图的价格级别/行数', group = group_vp)
+vp_va_max_iterations = input.int(250, 'VA Max Iterations', group=group_vp, minval=10, maxval=500, tooltip='Maximum iterations for Value Area calculation. Default is 250. Max value should not exceed max vp_rows (500).')
+vp_poc_change_threshold_percent = input.float(10.0, "POC Change Threshold % (VA Recalc)", group=group_vp, minval=0.0, maxval=100.0, step=0.1, tooltip="Recalculate Value Area only if POC shifts by more than this % of profile price range. 0 to disable.")
+vp_volume_change_threshold_percent = input.float(5.0, "Volume Change Threshold % (Redraw)", group=group_vp, minval=0.0, maxval=100.0, step=0.1, tooltip="Redraw profile polyline only if total volume changes by this % OR if POC/VA changes. 0 to disable.")
 vp_profile_tf = input.timeframe('W', '分布图时间框架 (Profile Timeframe)', tooltip = '成交量分布图所代表的聚合时间框架', group = group_vp)
 vp_resolution_tf = input.timeframe('3', '解析度时间框架 (Resolution Timeframe)', tooltip = '用于构建成交量分布图的更低级别时间框架数据', group = group_vp)
 vp_extend_profile_percent = input.int(30, '分布图延伸 % (Profile Extend %)', 0, 100, tooltip = '成交量分布图应延伸到下一个周期的百分比', group = group_vp)
@@ -324,9 +327,13 @@ var array<line> vp_historical_pocs = array.new_line() // Stores historical VPOC 
 var array<polyline> vp_historical_profiles = array.new<polyline>(0) // 存储历史VP图形
 var array<polyline> vp_historical_value_areas = array.new<polyline>(0) // 存储历史VP的Value Area
 var int max_historical_profiles = 5 // 最大保存的历史VP图形数量
-var array<float> vp_volume_values = array.new_float()    // Stores aggregated volume for each price row
-var array<int> vp_x_coords = array.new_int()        // Stores x-coordinates (time/bar_index) for profile points
-var array<float> vp_y_coords = array.new_float()      // Stores y-coordinates (price levels) for profile points
+var array<float> vp_volume_values = array.new_float(0)    // Stores aggregated volume for each price row
+var array<float> vp_row_low_prices = array.new_float(0)  // Stores low price boundary for each VP row
+var array<float> vp_row_high_prices = array.new_float(0) // Stores high price boundary for each VP row
+var array<int> vp_x_coords = array.new_int(0)        // Stores x-coordinates (time/bar_index) for profile points
+var array<float> vp_y_coords = array.new_float(0)      // Stores y-coordinates (price levels) for profile points
+var float vp_previous_poc_price = na
+var array<float> vp_previous_volume_values = array.new_float(0)
 var array<chart.point> vp_profile_points_array = array.new<chart.point>() // Stores points for drawing the polyline
 var array<chart.point> vp_value_area_points_array = array.new<chart.point>() // Stores points for drawing value area
 var polyline vp_current_profile_polyline = na        // The current volume profile polyline
@@ -932,19 +939,65 @@ if vp_enable
         // Recalculate profile on new period or on the last bar
         is_new_vp_period = timeframe.change(vp_profile_tf)
         if is_new_vp_period or barstate.islast
-            array.clear(vp_x_coords)
-            array.clear(vp_y_coords)
-            array.clear(vp_volume_values)
+            // Optimize vp_volume_values initialization
+            if array.size(vp_volume_values) != vp_rows and vp_rows > 0
+                array.clear(vp_volume_values) // Clear before resizing by push
+                for _ = 0 to vp_rows - 1
+                    array.push(vp_volume_values, 0.0) 
+            else if vp_rows > 0 // Size is already correct
+                for i_fill = 0 to vp_rows - 1
+                    array.set(vp_volume_values, i_fill, 0.0)
+            else // vp_rows is 0 or less
+                array.clear(vp_volume_values)
 
-            // Initialize rows for the profile
-            for i = 0 to vp_rows - 1 // Corrected loop to vp_rows -1
-                price_level = profile_low_price + i * (profile_high_price - profile_low_price) / (vp_rows -1) // Ensure full range
-                array.push(vp_x_coords, vp_last_time_profile_start) // Initial x-coord is start of profile
-                array.push(vp_y_coords, price_level)
-                array.push(vp_volume_values, 0)
+            // Precompute Price-to-Row Mapping (vp_row_low_prices, vp_row_high_prices)
+            // Ensure these are sized correctly if vp_rows changes.
+            if array.size(vp_row_low_prices) != vp_rows and vp_rows > 0 // Covers size change for vp_row_high_prices too
+                array.clear(vp_row_low_prices)
+                array.clear(vp_row_high_prices)
+                for _ = 0 to vp_rows - 1
+                    array.push(vp_row_low_prices, na) // Push to establish size
+                    array.push(vp_row_high_prices, na) // Push to establish size
+            else if vp_rows <= 0 
+                array.clear(vp_row_low_prices)
+                array.clear(vp_row_high_prices)
+            // If size is correct and vp_rows > 0, they will be populated by array.set later.
+            
+            float _price_step = (vp_rows > 1 and profile_high_price > profile_low_price) ? (profile_high_price - profile_low_price) / (vp_rows - 1) : 0.0
+
+            if vp_rows > 0
+                for j_map = 0 to vp_rows - 1
+                    if _price_step > 0 // Standard case with price range
+                        array.set(vp_row_low_prices, j_map, profile_low_price + j_map * _price_step)
+                        array.set(vp_row_high_prices, j_map, profile_low_price + (j_map + 1) * _price_step)
+                    else // Flat profile or single row
+                        array.set(vp_row_low_prices, j_map, profile_low_price)
+                        array.set(vp_row_high_prices, j_map, profile_high_price) 
+
+                if vp_rows > 0 and _price_step > 0 
+                     array.set(vp_row_high_prices, vp_rows - 1, profile_high_price)
+                if vp_rows > 0
+                    array.set(vp_row_low_prices, 0, profile_low_price)
+
+            // Optimize vp_y_coords initialization (Price Levels for Rows)
+            if array.size(vp_y_coords) != vp_rows and vp_rows > 0
+                array.clear(vp_y_coords)
+                for _ = 0 to vp_rows - 1
+                    array.push(vp_y_coords, 0.0) // Push to establish size
+            // No 'else if' for filling here, as it's populated directly after based on vp_row_low_prices.
+            // If size is correct, it will be overwritten. If vp_rows is 0, it's cleared below.
+            
+            if vp_rows > 0 and array.size(vp_row_low_prices) == vp_rows // Ensure source array is ready
+                for i_y = 0 to vp_rows - 1
+                    array.set(vp_y_coords, i_y, array.get(vp_row_low_prices, i_y))
+            else if vp_rows <= 0 // Handles vp_rows is 0 or less for vp_y_coords
+                array.clear(vp_y_coords)
+
+            // vp_x_coords will be initialized/cleared and populated later, before drawing.
+            // Old initialization loops for vp_x_coords, vp_y_coords, vp_volume_values are now fully replaced.
 
             // Aggregate volume from lower timeframe data
-            float _price_step = (vp_rows > 1 and profile_high_price > profile_low_price) ? (profile_high_price - profile_low_price) / (vp_rows - 1) : 0.0
+            // _price_step is already calculated above (used by vp_row_low_prices/vp_row_high_prices)
 
             int end_bar_offset = barstate.islast ? 0 : 1
             for i = lookback_bars - end_bar_offset to 0 // Iterate over bars in the current profile period
@@ -958,149 +1011,196 @@ if vp_enable
                         float ltf_bar_low = array.get(low_at_bar_arr, k)
                         float ltf_bar_vol = array.get(vol_at_bar_arr, k)
 
-                        if ltf_bar_vol > 0
-                            if profile_high_price > profile_low_price and _price_step > 0 // Profile has height and valid step
-                                int start_row_idx = math.max(0, math.round((ltf_bar_low - profile_low_price) / _price_step))
-                                int end_row_idx = math.min(vp_rows - 1, math.round((ltf_bar_high - profile_low_price) / _price_step))
-                                
-                                if start_row_idx < vp_rows and end_row_idx >= 0 and start_row_idx <= end_row_idx
-                                    int num_rows_spanned = end_row_idx - start_row_idx + 1
-                                    float vol_per_spanned_row = ltf_bar_vol / num_rows_spanned
-                                    
-                                    for j = start_row_idx to end_row_idx
-                                        if j >= 0 and j < vp_rows // Defensive check
-                                            array.set(vp_volume_values, j, array.get(vp_volume_values, j) + vol_per_spanned_row)
-                            
-                            else if profile_high_price == profile_low_price // Profile is flat (single price level)
-                                // If ltf bar is within this single price level, add its volume to the first row
-                                // (All rows are effectively at this price if vp_rows > 1, or just row 0 if vp_rows = 1)
-                                if ltf_bar_low <= profile_low_price and ltf_bar_high >= profile_low_price
-                                    if vp_rows > 0 // Ensure there's at least one row
-                                        array.set(vp_volume_values, 0, array.get(vp_volume_values, 0) + ltf_bar_vol)
-                            // else: ltf_bar_vol > 0 but profile has no height and step is not positive, or ltf_bar is outside flat profile.
-                            // This case implies that the ltf_bar does not fall into any valid row, so its volume is not added.
-                            // Or, if vp_rows = 1 and profile has height, _price_step is 0. Add to row 0 if it overlaps.
-                            else if vp_rows == 1 and ltf_bar_low <= profile_high_price and ltf_bar_high >= profile_low_price
-                                array.set(vp_volume_values, 0, array.get(vp_volume_values, 0) + ltf_bar_vol)
+                        if ltf_bar_vol > 0 and vp_rows > 0 and profile_high_price >= profile_low_price and array.size(vp_row_low_prices) == vp_rows
+                            var int rows_spanned_by_ltf_bar = 0
+                            var array<bool> ltf_bar_spanned_rows_flags = array.new_bool(vp_rows, false) 
+                            if array.size(ltf_bar_spanned_rows_flags) != vp_rows 
+                                ltf_bar_spanned_rows_flags := array.new_bool(vp_rows, false)
+                            else
+                                array.fill(ltf_bar_spanned_rows_flags, false)
 
+                            for j_span_check = 0 to vp_rows - 1
+                                float row_low = array.get(vp_row_low_prices, j_span_check)
+                                float row_high = array.get(vp_row_high_prices, j_span_check)
+                                
+                                bool overlaps = math.max(ltf_bar_low, row_low) < math.min(ltf_bar_high, row_high)
+                                if row_low == row_high and ltf_bar_low == ltf_bar_high
+                                    overlaps := ltf_bar_low == row_low
+                                else if row_low == row_high 
+                                    overlaps := ltf_bar_low <= row_low and ltf_bar_high >= row_high
+
+                                if overlaps
+                                    array.set(ltf_bar_spanned_rows_flags, j_span_check, true)
+                                    rows_spanned_by_ltf_bar += 1
+                            
+                            if rows_spanned_by_ltf_bar > 0
+                                float vol_per_spanned_row = ltf_bar_vol / rows_spanned_by_ltf_bar
+                                for j_distribute = 0 to vp_rows - 1
+                                    if array.get(ltf_bar_spanned_rows_flags, j_distribute)
+                                        array.set(vp_volume_values, j_distribute, array.get(vp_volume_values, j_distribute) + vol_per_spanned_row)
 
             // Find VPOC (price level with max volume)
             // Ensure vp_volume_values is not empty before calling array.max, though it's initialized with vp_rows elements.
             max_volume_for_poc = array.size(vp_volume_values) > 0 ? array.max(vp_volume_values) : 0.0
-            poc_price = array.get(vp_y_coords, array.indexof(vp_volume_values, max_volume_for_poc))
+            poc_price = array.get(vp_y_coords, array.indexof(vp_volume_values, max_volume_for_poc)) // Assumes vp_y_coords is populated and valid
+
+            // ---- Incremental Update Logic ----
+            bool should_recalculate_va = true 
+            if vp_poc_change_threshold_percent > 0.0 and not na(vp_previous_poc_price) and not na(poc_price) and profile_high_price > profile_low_price and array.size(vp_volume_values) > 0
+                poc_change_abs = math.abs(poc_price - vp_previous_poc_price)
+                price_range = profile_high_price - profile_low_price
+                if price_range > 0
+                    poc_change_as_percent_of_range = (poc_change_abs / price_range) * 100.0
+                    if poc_change_as_percent_of_range < vp_poc_change_threshold_percent
+                        should_recalculate_va := false
+                else 
+                    if poc_price == vp_previous_poc_price
+                        should_recalculate_va := false
+            else if na(vp_previous_poc_price) 
+                 should_recalculate_va := true
+
+            float current_total_volume = array.sum(vp_volume_values)
+            float previous_total_volume = array.size(vp_previous_volume_values) > 0 ? array.sum(vp_previous_volume_values) : 0.0
+            
+            bool significant_volume_change = true 
+            if vp_volume_change_threshold_percent > 0.0 and previous_total_volume > 0 and current_total_volume > 0 and array.size(vp_previous_volume_values) > 0
+                volume_diff_percent = (math.abs(current_total_volume - previous_total_volume) / previous_total_volume) * 100.0
+                if volume_diff_percent < vp_volume_change_threshold_percent and not should_recalculate_va
+                    significant_volume_change := false
+            else if array.size(vp_previous_volume_values) == 0 // First run for this profile, always consider significant
+                significant_volume_change := true
+            
+            // ---- End Incremental Update Logic ----
 
             // 计算Value Area（包含70%总成交量的区域）
-            vp_value_area_low_idx := na
-            vp_value_area_high_idx := na
-            
-            // 计算总成交量
-            float total_volume = 0.0
-            for i = 0 to array.size(vp_volume_values) - 1
-                total_volume += array.get(vp_volume_values, i)
+            if should_recalculate_va // Only calculate VA if needed
+                vp_value_area_low_idx := na
+                vp_value_area_high_idx := na
                 
-            // 如果有足够的成交量，计算Value Area
-            if total_volume > 0
-                // 从VPOC开始向两边扩展，直到包含70%的成交量
-                int poc_index = array.indexof(vp_volume_values, max_volume_for_poc)
-                float target_volume = total_volume * 0.7  // 目标70%成交量
-                float current_volume = array.get(vp_volume_values, poc_index)
-                
-                vp_value_area_low_idx := poc_index
-                vp_value_area_high_idx := poc_index
-                
-                int l_ptr = poc_index - 1
-                int r_ptr = poc_index + 1
-                
-                while current_volume < target_volume
-                    float vol_left = l_ptr >= 0 ? array.get(vp_volume_values, l_ptr) : 0.0
-                    float vol_right = r_ptr < array.size(vp_volume_values) ? array.get(vp_volume_values, r_ptr) : 0.0
+                float total_volume = current_total_volume // Use already calculated current_total_volume
                     
-                    if vol_left <= 0 and vol_right <= 0
-                        break  // 两侧都没有更多成交量
+                if total_volume > 0
+                    int poc_index = array.indexof(vp_volume_values, max_volume_for_poc)
+                    float target_volume = total_volume * 0.7  
+                    float current_va_calc_volume = array.get(vp_volume_values, poc_index)
                     
-                    if vol_left >= vol_right or (vol_left > 0 and vol_right <= 0)
-                        current_volume += vol_left
-                        vp_value_area_low_idx := l_ptr
-                        l_ptr -= 1
-                    else
-                        current_volume += vol_right
-                        vp_value_area_high_idx := r_ptr
-                        r_ptr += 1
-            
-            // Prepare polyline points
-            // Scaling factor for profile width
-            max_aggregated_volume = array.max(vp_volume_values) > 0 ? array.max(vp_volume_values) : 1
-            time_width_for_profile = 0.0 // Initialize to float for calculations
-            
-            base_time_width = float(time[0] - vp_last_time_profile_start) // Ensure float for calculation
+                    vp_value_area_low_idx := poc_index
+                    vp_value_area_high_idx := poc_index
+                    
+                    int l_ptr = poc_index - 1
+                    int r_ptr = poc_index + 1
+                    int va_iterations = 0 
+                    
+                    while current_va_calc_volume < target_volume and va_iterations < vp_va_max_iterations and va_iterations < vp_rows 
+                        float vol_left = l_ptr >= 0 ? array.get(vp_volume_values, l_ptr) : 0.0
+                        float vol_right = r_ptr < array.size(vp_volume_values) ? array.get(vp_volume_values, r_ptr) : 0.0
+                        
+                        if vol_left <= 0 and vol_right <= 0
+                            break  
+                        
+                        if vol_left >= vol_right or (vol_left > 0 and vol_right <= 0) 
+                            current_va_calc_volume += vol_left
+                            vp_value_area_low_idx := l_ptr
+                            l_ptr -= 1
+                        else
+                            current_va_calc_volume += vol_right
+                            vp_value_area_high_idx := r_ptr
+                            r_ptr += 1
+                        
+                        va_iterations += 1 
+            // else: VA indices (vp_value_area_low_idx, vp_value_area_high_idx) retain their values from previous calculation.
 
-            if vp_extend_profile_percent == 0
-                // If extend percent is 0, use the base time width, ensuring it's at least 1
-                time_width_for_profile := base_time_width > 0 ? base_time_width : 1.0
-            else
-                // Calculate width based on extend percentage
-                calculated_width = base_time_width * (vp_extend_profile_percent / 100.0)
-                // Ensure the calculated width is at least 1
-                time_width_for_profile := calculated_width > 0 ? calculated_width : 1.0
+            // ---- Conditional Polyline Construction and Drawing ----
+            bool force_redraw_profile = na(vp_current_profile_polyline) 
+            bool condition_update_profile_geometry = significant_volume_change or should_recalculate_va or force_redraw_profile
+
+            if condition_update_profile_geometry // Recalculate vp_x_coords and profile points if necessary
+                max_aggregated_volume = array.size(vp_volume_values) > 0 ? array.max(vp_volume_values) : 1.0 
+                max_aggregated_volume := max_aggregated_volume > 0 ? max_aggregated_volume : 1.0
+                time_width_for_profile = 0.0 
+                base_time_width = float(time[0] - vp_last_time_profile_start) 
+                if vp_extend_profile_percent == 0
+                    time_width_for_profile := base_time_width > 0 ? base_time_width : 1.0
+                else
+                    calculated_width = base_time_width * (vp_extend_profile_percent / 100.0)
+                    time_width_for_profile := calculated_width > 0 ? calculated_width : 1.0
+                time_width_for_profile := time_width_for_profile > 0 ? time_width_for_profile : 1.0
+                scaling_factor = max_aggregated_volume / time_width_for_profile
+                scaling_factor := scaling_factor > 0 ? scaling_factor : 1.0 
+
+                if array.size(vp_x_coords) != vp_rows and vp_rows > 0
+                    array.clear(vp_x_coords) 
+                    for _ = 0 to vp_rows - 1
+                        array.push(vp_x_coords, vp_last_time_profile_start) 
+                else if vp_rows > 0 
+                     for i_fill_x = 0 to vp_rows - 1 
+                        array.set(vp_x_coords, i_fill_x, vp_last_time_profile_start) 
+                else 
+                    array.clear(vp_x_coords)
+
+                if vp_rows > 0 and array.size(vp_volume_values) == vp_rows and array.size(vp_x_coords) == vp_rows 
+                    for j_x = 0 to vp_rows - 1 
+                        if scaling_factor > 0
+                            scaled_volume_as_time_offset = math.floor(array.get(vp_volume_values, j_x) / scaling_factor)
+                            array.set(vp_x_coords, j_x, vp_last_time_profile_start + scaled_volume_as_time_offset)
+
+                array.clear(vp_profile_points_array)
+                array.push(vp_profile_points_array, chart.point.from_time(vp_last_time_profile_start, profile_low_price))
+                if vp_rows > 0 and array.size(vp_x_coords) == vp_rows and array.size(vp_y_coords) == vp_rows
+                    for i_poly = 0 to vp_rows - 1
+                        array.push(vp_profile_points_array, chart.point.from_time(array.get(vp_x_coords, i_poly), array.get(vp_y_coords, i_poly)))
+                array.push(vp_profile_points_array, chart.point.from_time(vp_last_time_profile_start, profile_high_price))
+
+            // -- Main Profile Polyline Drawing --
+            if vp_show_profile and condition_update_profile_geometry
+                if not na(vp_current_profile_polyline)
+                    vp_current_profile_polyline.delete()
+                vp_current_profile_polyline := polyline.new(vp_profile_points_array, curved = false, closed = true, 
+                                       line_color = vp_profile_color, fill_color = vp_profile_color, 
+                                       xloc = xloc.bar_time)
             
-            // Final defensive check to ensure time_width_for_profile is positive, at least 1.0
-            time_width_for_profile := time_width_for_profile > 0 ? time_width_for_profile : 1.0
+            // -- Value Area Polyline Construction & Drawing --
+            bool force_redraw_va = na(vp_current_value_area_polyline)
+            bool condition_update_va_geometry = should_recalculate_va or (significant_volume_change and not na(vp_value_area_low_idx)) or force_redraw_va
 
-            scaling_factor = max_aggregated_volume / time_width_for_profile
-            scaling_factor := scaling_factor > 0 ? scaling_factor : 1 // Avoid division by zero or negative scaling
-
-            for j = 0 to array.size(vp_volume_values) - 1
-                scaled_volume_as_time_offset = math.floor(array.get(vp_volume_values, j) / scaling_factor)
-                array.set(vp_x_coords, j, vp_last_time_profile_start + scaled_volume_as_time_offset)
-
-            // Build points for polyline
-            array.clear(vp_profile_points_array)
-            array.push(vp_profile_points_array, chart.point.from_time(vp_last_time_profile_start, profile_low_price))
-            for i = 0 to array.size(vp_x_coords) - 1
-                array.push(vp_profile_points_array, chart.point.from_time(array.get(vp_x_coords, i), array.get(vp_y_coords, i)))
-            array.push(vp_profile_points_array, chart.point.from_time(vp_last_time_profile_start, profile_high_price))
-            
-            // 构建Value Area的点阵列
-            array.clear(vp_value_area_points_array)
-            if not na(vp_value_area_low_idx) and not na(vp_value_area_high_idx) and vp_value_area_low_idx >= 0 and vp_value_area_high_idx >= 0 and vp_value_area_low_idx < array.size(vp_y_coords) and vp_value_area_high_idx < array.size(vp_y_coords)
-                // 添加Value Area下边界点
+            if condition_update_va_geometry and not na(vp_value_area_low_idx) and not na(vp_value_area_high_idx) and vp_value_area_low_idx >=0 and vp_value_area_high_idx < vp_rows and vp_value_area_low_idx <= vp_value_area_high_idx and array.size(vp_y_coords) == vp_rows and array.size(vp_x_coords) == vp_rows
+                array.clear(vp_value_area_points_array)
                 value_area_low_price = array.get(vp_y_coords, vp_value_area_low_idx)
                 value_area_high_price = array.get(vp_y_coords, vp_value_area_high_idx)
-                
                 array.push(vp_value_area_points_array, chart.point.from_time(vp_last_time_profile_start, value_area_low_price))
-                
-                // 添加Value Area右侧边界点
-                for i = vp_value_area_low_idx to vp_value_area_high_idx
-                    if i >= 0 and i < array.size(vp_x_coords) and i < array.size(vp_y_coords)
-                        array.push(vp_value_area_points_array, chart.point.from_time(array.get(vp_x_coords, i), array.get(vp_y_coords, i)))
-                
-                // 添加Value Area上边界点
+                for i_va_poly = vp_value_area_low_idx to vp_value_area_high_idx
+                    array.push(vp_value_area_points_array, chart.point.from_time(array.get(vp_x_coords, i_va_poly), array.get(vp_y_coords, i_va_poly)))
                 array.push(vp_value_area_points_array, chart.point.from_time(vp_last_time_profile_start, value_area_high_price))
 
-            // Delete old polyline and draw new one
-            if not na(vp_current_profile_polyline)
-                vp_current_profile_polyline.delete()
-                vp_current_profile_polyline := na
-                
-            if not na(vp_current_value_area_polyline)
-                vp_current_value_area_polyline.delete()
-                vp_current_value_area_polyline := na
-
-            if vp_show_profile
-                vp_current_profile_polyline := polyline.new(vp_profile_points_array, curved = false, closed = true, 
-                                   line_color = vp_profile_color, fill_color = vp_profile_color, 
-                                   xloc = xloc.bar_time)
-                                   
-                // 如果显示VP，同时显示Value Area
+            if vp_show_profile and condition_update_va_geometry 
+                if not na(vp_current_value_area_polyline)
+                    vp_current_value_area_polyline.delete()
+                // Ensure points were actually built before drawing
                 if array.size(vp_value_area_points_array) > 2
                     vp_current_value_area_polyline := polyline.new(vp_value_area_points_array, curved = false, closed = true, 
-                                       line_color = vp_value_area_color, fill_color = vp_value_area_color, 
-                                       xloc = xloc.bar_time)
+                                                       line_color = vp_value_area_color, fill_color = vp_value_area_color, 
+                                                       xloc = xloc.bar_time)
+                else // If no points, ensure polyline is na
+                    vp_current_value_area_polyline := na
 
-            // Handle VPOC lines and labels
+
+            // Store current POC and volume data for next bar's comparison
+            vp_previous_poc_price := poc_price
+            if array.size(vp_previous_volume_values) != array.size(vp_volume_values) and array.size(vp_volume_values) > 0
+                array.clear(vp_previous_volume_values)
+                for vol_val_copy_idx = 0 to array.size(vp_volume_values) - 1 // Iterate with index for new_float(0) compatibility
+                    array.push(vp_previous_volume_values, array.get(vp_volume_values, vol_val_copy_idx))
+            else if array.size(vp_volume_values) > 0
+                for i_vol_copy = 0 to array.size(vp_volume_values) - 1
+                    array.set(vp_previous_volume_values, i_vol_copy, array.get(vp_volume_values, i_vol_copy))
+            else
+                array.clear(vp_previous_volume_values) 
+
+            // Handle VPOC lines and labels (Original logic for is_new_vp_period and barstate.islast for VPOC labels)
+            // Handle VPOC lines and labels (This part seems to be mostly for historical and current POC display, may not need full conditionalization based on geometry change flags, but rather on is_new_vp_period or barstate.islast)
             if is_new_vp_period
                 // 添加当前的VP图形到历史数组中
-                if vp_show_historical and not na(vp_current_profile_polyline) // profile_low_price and profile_high_price would have been calculated for the period
+                if vp_show_historical and not na(vp_current_profile_polyline) 
                     // 创建一个新的点数组用于历史VP
                     var array<chart.point> historical_points = array.new<chart.point>()
                     array.clear(historical_points)
