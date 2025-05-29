@@ -932,16 +932,30 @@ if vp_enable
         // Recalculate profile on new period or on the last bar
         is_new_vp_period = timeframe.change(vp_profile_tf)
         if is_new_vp_period or barstate.islast
-            array.clear(vp_x_coords)
-            array.clear(vp_y_coords)
-            array.clear(vp_volume_values)
+            // Clear arrays that are grown with array.push later (e.g., for drawing)
+            // Note: vp_profile_points_array and vp_value_area_points_array are cleared later before being repopulated.
+            // No need to clear vp_x_coords, vp_y_coords, vp_volume_values if re-assigned with := below.
 
-            // Initialize rows for the profile
-            for i = 0 to vp_rows - 1 // Corrected loop to vp_rows -1
-                price_level = profile_low_price + i * (profile_high_price - profile_low_price) / (vp_rows -1) // Ensure full range
-                array.push(vp_x_coords, vp_last_time_profile_start) // Initial x-coord is start of profile
-                array.push(vp_y_coords, price_level)
-                array.push(vp_volume_values, 0)
+            // Initialize main profile arrays to known size vp_rows
+            vp_x_coords := array.new_int(vp_rows) 
+            vp_y_coords := array.new_float(vp_rows)
+            vp_volume_values := array.new_float(vp_rows, 0.0) // Initialize all volumes to 0.0
+
+            // Populate vp_y_coords (price levels) and vp_x_coords (initial time)
+            if vp_rows > 0 // vp_rows is min 10, so always true
+                float y_coord_increment = 0.0
+                if vp_rows > 1
+                    y_coord_increment := (profile_high_price - profile_low_price) / (vp_rows - 1)
+
+                for i = 0 to vp_rows - 1
+                    float current_price_level = profile_low_price + i * y_coord_increment
+                    // For the last row, explicitly set to profile_high_price to avoid potential floating point inaccuracies
+                    if (i == vp_rows - 1 and vp_rows > 1) 
+                        current_price_level := profile_high_price
+                    
+                    array.set(vp_y_coords, i, current_price_level)
+                    array.set(vp_x_coords, i, vp_last_time_profile_start) 
+                    // vp_volume_values is already initialized with 0.0 by array.new_float(vp_rows, 0.0)
 
             // Aggregate volume from lower timeframe data
             float _price_step = (vp_rows > 1 and profile_high_price > profile_low_price) ? (profile_high_price - profile_low_price) / (vp_rows - 1) : 0.0
@@ -968,8 +982,10 @@ if vp_enable
                                     float vol_per_spanned_row = ltf_bar_vol / num_rows_spanned
                                     
                                     for j = start_row_idx to end_row_idx
-                                        if j >= 0 and j < vp_rows // Defensive check
-                                            array.set(vp_volume_values, j, array.get(vp_volume_values, j) + vol_per_spanned_row)
+                                        // The check "if j >= 0 and j < vp_rows" is removed as j is guaranteed 
+                                        // to be within bounds by the loop condition and prior clamping 
+                                        // of start_row_idx and end_row_idx.
+                                        array.set(vp_volume_values, j, array.get(vp_volume_values, j) + vol_per_spanned_row)
                             
                             else if profile_high_price == profile_low_price // Profile is flat (single price level)
                                 // If ltf bar is within this single price level, add its volume to the first row
