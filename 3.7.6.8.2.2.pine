@@ -324,9 +324,22 @@ var array<line> vp_historical_pocs = array.new_line() // Stores historical VPOC 
 var array<polyline> vp_historical_profiles = array.new<polyline>(0) // 存储历史VP图形
 var array<polyline> vp_historical_value_areas = array.new<polyline>(0) // 存储历史VP的Value Area
 var int max_historical_profiles = 5 // 最大保存的历史VP图形数量
-var array<float> vp_volume_values = array.new_float()    // Stores aggregated volume for each price row
-var array<int> vp_x_coords = array.new_int()        // Stores x-coordinates (time/bar_index) for profile points
-var array<float> vp_y_coords = array.new_float()      // Stores y-coordinates (price levels) for profile points
+
+// 在全局变量区域预分配数组
+var float[] vp_volume_values = array.new_float(0)
+var float[] vp_y_coords = array.new_float(0)
+var int[] vp_x_coords = array.new_int(0)
+
+// 初始化时预填充数组
+if array.size(vp_volume_values) != vp_rows
+    array.clear(vp_volume_values)
+    array.clear(vp_y_coords)
+    array.clear(vp_x_coords)
+    for i = 0 to vp_rows - 1
+        array.push(vp_volume_values, 0.0)
+        array.push(vp_y_coords, 0.0)
+        array.push(vp_x_coords, 0)
+
 var array<chart.point> vp_profile_points_array = array.new<chart.point>() // Stores points for drawing the polyline
 var array<chart.point> vp_value_area_points_array = array.new<chart.point>() // Stores points for drawing value area
 var polyline vp_current_profile_polyline = na        // The current volume profile polyline
@@ -932,72 +945,75 @@ if vp_enable
         // Recalculate profile on new period or on the last bar
         is_new_vp_period = timeframe.change(vp_profile_tf)
         if is_new_vp_period or barstate.islast
-            // Clear arrays that are grown with array.push later (e.g., for drawing)
-            // Note: vp_profile_points_array and vp_value_area_points_array are cleared later before being repopulated.
-            // No need to clear vp_x_coords, vp_y_coords, vp_volume_values if re-assigned with := below.
+            // 优化后的数据结构初始化
+            vp_volume_values := array.new_float(vp_rows, 0.0) // 保留成交量数组初始化
 
-            // Initialize main profile arrays to known size vp_rows
-            vp_x_coords := array.new_int(vp_rows) 
-            vp_y_coords := array.new_float(vp_rows)
-            vp_volume_values := array.new_float(vp_rows, 0.0) // Initialize all volumes to 0.0
-
-            // Populate vp_y_coords (price levels) and vp_x_coords (initial time)
-            if vp_rows > 0 // vp_rows is min 10, so always true
-                float y_coord_increment = 0.0
-                if vp_rows > 1
-                    y_coord_increment := (profile_high_price - profile_low_price) / (vp_rows - 1)
-
+            if vp_rows > 0
+                // 预分配内存
+                vp_y_coords := array.new_float(vp_rows)
+                vp_x_coords := array.new_int(vp_rows)
+                
+                // 替换原有价格坐标计算
+                float price_step = (profile_high_price - profile_low_price) / math.max(1, vp_rows - 1)
                 for i = 0 to vp_rows - 1
-                    float current_price_level = profile_low_price + i * y_coord_increment
-                    // For the last row, explicitly set to profile_high_price to avoid potential floating point inaccuracies
-                    if (i == vp_rows - 1 and vp_rows > 1) 
-                        current_price_level := profile_high_price
-                    
-                    array.set(vp_y_coords, i, current_price_level)
-                    array.set(vp_x_coords, i, vp_last_time_profile_start) 
-                    // vp_volume_values is already initialized with 0.0 by array.new_float(vp_rows, 0.0)
+                    array.set(vp_y_coords, i, profile_low_price + i * price_step)
+                // 确保最后一个价格准确
+                if vp_rows > 1
+                    array.set(vp_y_coords, vp_rows - 1, profile_high_price)
+                
+                // 批量设置时间坐标
+                for i = 0 to vp_rows - 1
+                    array.set(vp_x_coords, i, vp_last_time_profile_start)
 
             // Aggregate volume from lower timeframe data
             float _price_step = (vp_rows > 1 and profile_high_price > profile_low_price) ? (profile_high_price - profile_low_price) / (vp_rows - 1) : 0.0
+            float inv_price_step = _price_step != 0 ? 1 / _price_step : 0
 
             int end_bar_offset = barstate.islast ? 0 : 1
-            for i = lookback_bars - end_bar_offset to 0 // Iterate over bars in the current profile period
+            // 优化成交量分配循环
+            for i = lookback_bars - end_bar_offset to 0
                 vol_at_bar_arr = ltf_V_arr[i] 
                 high_at_bar_arr = ltf_H_arr[i]
                 low_at_bar_arr = ltf_L_arr[i]
 
                 if array.size(vol_at_bar_arr) > 0
-                    for k = 0 to array.size(vol_at_bar_arr) - 1 // Iterate over LFT bars within the main bar
+                    int size_vol = array.size(vol_at_bar_arr)
+                    for k = 0 to size_vol - 1
+                        float ltf_bar_vol = array.get(vol_at_bar_arr, k)
+                        if ltf_bar_vol <= 0
+                            continue
+                            
+                        // 先获取当前小周期的高低
                         float ltf_bar_high = array.get(high_at_bar_arr, k)
                         float ltf_bar_low = array.get(low_at_bar_arr, k)
-                        float ltf_bar_vol = array.get(vol_at_bar_arr, k)
-
-                        if ltf_bar_vol > 0
-                            if profile_high_price > profile_low_price and _price_step > 0 // Profile has height and valid step
-                                int start_row_idx = math.max(0, math.round((ltf_bar_low - profile_low_price) / _price_step))
-                                int end_row_idx = math.min(vp_rows - 1, math.round((ltf_bar_high - profile_low_price) / _price_step))
-                                
-                                if start_row_idx < vp_rows and end_row_idx >= 0 and start_row_idx <= end_row_idx
-                                    int num_rows_spanned = end_row_idx - start_row_idx + 1
-                                    float vol_per_spanned_row = ltf_bar_vol / num_rows_spanned
-                                    
-                                    for j = start_row_idx to end_row_idx
-                                        // The check "if j >= 0 and j < vp_rows" is removed as j is guaranteed 
-                                        // to be within bounds by the loop condition and prior clamping 
-                                        // of start_row_idx and end_row_idx.
-                                        array.set(vp_volume_values, j, array.get(vp_volume_values, j) + vol_per_spanned_row)
-                            
-                            else if profile_high_price == profile_low_price // Profile is flat (single price level)
-                                // If ltf bar is within this single price level, add its volume to the first row
-                                // (All rows are effectively at this price if vp_rows > 1, or just row 0 if vp_rows = 1)
-                                if ltf_bar_low <= profile_low_price and ltf_bar_high >= profile_low_price
-                                    if vp_rows > 0 // Ensure there's at least one row
-                                        array.set(vp_volume_values, 0, array.get(vp_volume_values, 0) + ltf_bar_vol)
-                            // else: ltf_bar_vol > 0 but profile has no height and step is not positive, or ltf_bar is outside flat profile.
-                            // This case implies that the ltf_bar does not fall into any valid row, so its volume is not added.
-                            // Or, if vp_rows = 1 and profile has height, _price_step is 0. Add to row 0 if it overlaps.
-                            else if vp_rows == 1 and ltf_bar_low <= profile_high_price and ltf_bar_high >= profile_low_price
+                        
+                        // 处理单行情况（profile高度为0）
+                        if profile_high_price == profile_low_price
+                            if ltf_bar_low <= profile_low_price and ltf_bar_high >= profile_low_price
                                 array.set(vp_volume_values, 0, array.get(vp_volume_values, 0) + ltf_bar_vol)
+                            continue
+                            
+                        // 使用整数运算计算行索引（优化浮点运算）
+                        float low_offset = (ltf_bar_low - profile_low_price) * inv_price_step
+                        float high_offset = (ltf_bar_high - profile_low_price) * inv_price_step
+                        int start_row_idx = int(math.max(0, low_offset))
+                        int end_row_idx = int(math.min(vp_rows - 1, high_offset))
+                        
+                        // 快速检查是否需要处理
+                        if start_row_idx > vp_rows - 1 or end_row_idx < 0
+                            continue
+                            
+                        // 确保有效范围
+                        start_row_idx := math.max(0, start_row_idx)
+                        end_row_idx := math.min(vp_rows - 1, end_row_idx)
+                        
+                        if start_row_idx <= end_row_idx
+                            int num_rows_spanned = end_row_idx - start_row_idx + 1
+                            float vol_per_spanned_row = ltf_bar_vol / num_rows_spanned
+                            
+                            // 直接累加成交量
+                            for j = start_row_idx to end_row_idx
+                                array.set(vp_volume_values, j, array.get(vp_volume_values, j) + vol_per_spanned_row)
 
 
             // Find VPOC (price level with max volume)
@@ -1005,20 +1021,19 @@ if vp_enable
             max_volume_for_poc = array.size(vp_volume_values) > 0 ? array.max(vp_volume_values) : 0.0
             poc_price = array.get(vp_y_coords, array.indexof(vp_volume_values, max_volume_for_poc))
 
-            // 计算Value Area（包含70%总成交量的区域）
+            // 优化后的Value Area计算算法
             vp_value_area_low_idx := na
             vp_value_area_high_idx := na
-            
-            // 计算总成交量
+
+            // 预先计算总成交量
             float total_volume = 0.0
             for i = 0 to array.size(vp_volume_values) - 1
                 total_volume += array.get(vp_volume_values, i)
-                
-            // 如果有足够的成交量，计算Value Area
+
+            // 优化扩展算法
             if total_volume > 0
-                // 从VPOC开始向两边扩展，直到包含70%的成交量
                 int poc_index = array.indexof(vp_volume_values, max_volume_for_poc)
-                float target_volume = total_volume * 0.7  // 目标70%成交量
+                float target_volume = total_volume * 0.7
                 float current_volume = array.get(vp_volume_values, poc_index)
                 
                 vp_value_area_low_idx := poc_index
@@ -1026,15 +1041,15 @@ if vp_enable
                 
                 int l_ptr = poc_index - 1
                 int r_ptr = poc_index + 1
+                int loop_count = 0
+                int max_loops = vp_rows * 2  // 防止无限循环
                 
-                while current_volume < target_volume
-                    float vol_left = l_ptr >= 0 ? array.get(vp_volume_values, l_ptr) : 0.0
-                    float vol_right = r_ptr < array.size(vp_volume_values) ? array.get(vp_volume_values, r_ptr) : 0.0
+                while current_volume < target_volume and loop_count < max_loops
+                    loop_count += 1
+                    float vol_left = l_ptr >= 0 ? array.get(vp_volume_values, l_ptr) : -1
+                    float vol_right = r_ptr < vp_rows ? array.get(vp_volume_values, r_ptr) : -1
                     
-                    if vol_left <= 0 and vol_right <= 0
-                        break  // 两侧都没有更多成交量
-                    
-                    if vol_left >= vol_right or (vol_left > 0 and vol_right <= 0)
+                    if vol_left > vol_right
                         current_volume += vol_left
                         vp_value_area_low_idx := l_ptr
                         l_ptr -= 1
