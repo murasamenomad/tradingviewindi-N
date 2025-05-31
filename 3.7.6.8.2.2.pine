@@ -139,7 +139,6 @@ var int cached_month = na
 var int cached_year = na
 var int cached_quarter = na
 var int cached_dayofweek = na
-var int prev_bar_index = na
 var bool is_new_day = false
 var bool is_new_week = false
 var bool is_new_month = false
@@ -251,7 +250,7 @@ return_label_to_pool(label_obj) => // Function to return a label object to the p
         if not found // Check beginning
             for i = 0 to math.min(9, pool_size - 1)
                 if array.get(label_pool, i) == label_obj
-                    array.set(label_used_map, i, false) // Corrected: should be label_used_map
+                    array.set(label_used_map, i, false)
                     found := true
                     break
         if not found // Check in segments
@@ -310,7 +309,6 @@ var float dailyOpen = na
 var float mondayHigh = na
 var float mondayLow = na
 var int mondayStartBar = na
-var int mondayEndBar = na
 var float prevMondayHigh = na
 var float prevMondayLow = na
 var int prevMondayStartBar = na
@@ -349,8 +347,6 @@ var line vp_current_poc_label_line = na           // Short line segment for the 
 var label vp_current_poc_label = na               // Label for the current VPOC
 var int vp_last_bar_idx_profile_start = na        // Bar index at the start of the current VP period
 var int vp_last_time_profile_start = na           // Time at the start of the current VP period
-var float vp_last_profile_low = na                // 保存上一个周期的最低价格
-var float vp_last_profile_high = na               // 保存上一个周期的最高价格
 var int vp_value_area_low_idx = na                // Value Area的下界索引
 var int vp_value_area_high_idx = na               // Value Area的上界索引
 
@@ -924,7 +920,6 @@ if isMondayNow
     else
         mondayHigh := math.max(na(mondayHigh) ? high : mondayHigh, high)
         mondayLow := math.min(na(mondayLow) ? low : mondayLow, low)
-    mondayEndBar := bar_index
 
 // ---- Volume Profile Calculations ----
 if vp_enable
@@ -1179,10 +1174,6 @@ if vp_enable
                                 old_va = array.pop(vp_historical_value_areas)
                                 polyline.delete(old_va)
 
-                // 保存当前周期的高低价格，用于下一周期创建历史VP
-                vp_last_profile_low := profile_low_price
-                vp_last_profile_high := profile_high_price
-
                 // 存储历史VPOC
                 if vp_show_poc and not na(poc_price)
                     array.unshift(vp_historical_pocs, line.new(vp_last_time_profile_start, poc_price, time, poc_price, 
@@ -1221,7 +1212,6 @@ if vp_enable
                 vp_current_poc_label_line.set_color(vp_poc_color)
                 vp_current_poc_label_line.set_width(1)
                 vp_current_poc_label_line.set_style(DEFAULT_LINE_STYLE)
-                //vp_current_poc_label_line.set_xloc(xloc.bar_index)
 
                 // Update POC label
                 vp_current_poc_label.set_xy(bar_index + vp_label_offset_bars, poc_price)
@@ -1230,7 +1220,6 @@ if vp_enable
                 vp_current_poc_label.set_color(color.new(vp_poc_color, 80)) // Semi-transparent background
                 vp_current_poc_label.set_textcolor(color.white) // Contrasting text
                 vp_current_poc_label.set_style(label.style_label_left)
-                //vp_current_poc_label.set_xloc(xloc.bar_index)
 
 // Update Volume Profile anchor points
 if vp_enable
