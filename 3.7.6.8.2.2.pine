@@ -139,7 +139,6 @@ var int cached_month = na
 var int cached_year = na
 var int cached_quarter = na
 var int cached_dayofweek = na
-var int prev_bar_index = na
 var bool is_new_day = false
 var bool is_new_week = false
 var bool is_new_month = false
@@ -251,7 +250,7 @@ return_label_to_pool(label_obj) => // Function to return a label object to the p
         if not found // Check beginning
             for i = 0 to math.min(9, pool_size - 1)
                 if array.get(label_pool, i) == label_obj
-                    array.set(label_used_map, i, false) // Corrected: should be label_used_map
+                    array.set(label_used_map, i, false)
                     found := true
                     break
         if not found // Check in segments
@@ -376,126 +375,121 @@ detect_timeframe_changes() => // Function to detect timeframe changes
     isNewYear = current_year != cached_year
     [isNewDay, isNewWeek, isNewMonth, isNewQuarter, isNewYear, current_day, current_month, current_year, current_quarter, current_dayofweek]
 
+// Helper function for get_adaptive_anchor_tf for types with regular intraday steps
+_get_ref_tf_for_regular_types(current_tf, map_low_intraday, tf_60, tf_120, tf_180, tf_240, tf_dwm, default_tf) =>
+    if current_tf == "1" or current_tf == "3" or current_tf == "5" or current_tf == "15" or current_tf == "30" or current_tf == "45"
+        map_low_intraday
+    else if current_tf == "60"
+        tf_60
+    else if current_tf == "120"
+        tf_120
+    else if current_tf == "180"
+        tf_180
+    else if current_tf == "240"
+        tf_240
+    else if current_tf == "D" or current_tf == "W" or current_tf == "M"
+        tf_dwm
+    else
+        default_tf
+
 get_adaptive_anchor_tf(vwap_type='default') => // Function to get adaptive anchor timeframe
     current_tf = timeframe.period
+    string result_tf = "D" // Default to Daily if no specific match
+
     if vwap_type == 'yearly' or vwap_type == 'pyvwap'
-        if current_tf == "1" or current_tf == "3" or current_tf == "5" or current_tf == "15" or current_tf == "30" or current_tf == "45"
-            "45"
-        else if current_tf == "60"
-            "60"
-        else if current_tf == "120"
-            "120"
-        else if current_tf == "180"
-            "180"
-        else if current_tf == "240"
-            "240"
-        else if current_tf == "D" or current_tf == "W" or current_tf == "M"
-            "D"
-        else
-            "60"
+        result_tf := _get_ref_tf_for_regular_types(current_tf, "45", "60", "120", "180", "240", "D", "60")
     else if vwap_type == 'quarterly' or vwap_type == 'pqvwap'
-        if current_tf == "1" or current_tf == "3" or current_tf == "5" or current_tf == "15" or current_tf == "30" or current_tf == "45"
-            "45"
-        else if current_tf == "60"
-            "60"
-        else if current_tf == "120"
-            "120"
-        else if current_tf == "180"
-            "180"
-        else if current_tf == "240"
-            "240"
-        else if current_tf == "D" or current_tf == "W" or current_tf == "M"
-            "D"
-        else
-            "45"
+        result_tf := _get_ref_tf_for_regular_types(current_tf, "45", "60", "120", "180", "240", "D", "45")
     else if vwap_type == 'monthly' or vwap_type == 'pmvwap'
         if current_tf == "1" or current_tf == "3" or current_tf == "5" or current_tf == "15"
-            "15"
+            result_tf := "15"
         else if current_tf == "30"
-            "30"
+            result_tf := "30"
         else if current_tf == "45"
-            "45"
+            result_tf := "45"
         else if current_tf == "60"
-            "60"
+            result_tf := "60"
         else if current_tf == "120"
-            "120"
+            result_tf := "120"
         else if current_tf == "180"
-            "180"
+            result_tf := "180"
         else if current_tf == "240"
-            "240"
+            result_tf := "240"
         else if current_tf == "D" or current_tf == "W" or current_tf == "M"
-            "D"
+            result_tf := "D"
         else
-            "30"
+            result_tf := "30"
     else if vwap_type == 'weekly' or vwap_type == 'pwvwap'
         if current_tf == "1"
-            "1"
+            result_tf := "1"
         else if current_tf == "3"
-            "3"
+            result_tf := "3"
         else if current_tf == "5"
-            "5"
+            result_tf := "5"
         else if current_tf == "15"
-            "15"
+            result_tf := "15"
         else if current_tf == "30"
-            "30"
+            result_tf := "30"
         else if current_tf == "45"
-            "45"
+            result_tf := "45"
         else if current_tf == "60"
-            "60"
+            result_tf := "60"
         else if current_tf == "120"
-            "120"
+            result_tf := "120"
         else if current_tf == "180"
-            "180"
+            result_tf := "180"
         else if current_tf == "240" or current_tf == "D" or current_tf == "W"
-            "240"
+            result_tf := "240"
         else
-            "15"
+            result_tf := "15"
     else if vwap_type == 'daily'
         if current_tf == "1"
-            "1"
+            result_tf := "1"
         else if current_tf == "3"
-            "3"
+            result_tf := "3"
         else if current_tf == "5"
-            "5"
+            result_tf := "5"
         else if current_tf == "15"
-            "15"
+            result_tf := "15"
         else if current_tf == "30"
-            "30"
+            result_tf := "30"
         else if current_tf == "45"
-            "45"
+            result_tf := "45"
         else if current_tf == "60"
-            "60"
+            result_tf := "60"
         else if current_tf == "120"
-            "120"
+            result_tf := "120"
         else if current_tf == "180"
-            "180"
+            result_tf := "180"
         else if current_tf == "240" or current_tf == "D" or current_tf == "W" or current_tf == "M"
-            "240"
+            result_tf := "240"
         else
-            "15"
-    else // default
+            result_tf := "15"
+    else // default (this corresponds to the original final 'else' block)
         if current_tf == "1" or current_tf == "3"
-            "5"
+            result_tf := "5"
         else if current_tf == "5"
-            "5"
+            result_tf := "5"
         else if current_tf == "15"
-            "15"
+            result_tf := "15"
         else if current_tf == "30"
-            "30"
+            result_tf := "30"
         else if current_tf == "45"
-            "45"
+            result_tf := "45"
         else if current_tf == "60"
-            "60"
+            result_tf := "60"
         else if current_tf == "120"
-            "120"
+            result_tf := "120"
         else if current_tf == "180"
-            "180"
+            result_tf := "180"
         else if current_tf == "240"
-            "240"
+            result_tf := "240"
         else if current_tf == "D" or current_tf == "W" or current_tf == "M"
-            "D"
+            result_tf := "D"
         else
-            "D"
+            result_tf := "D" // Original final else was "D"
+
+    result_tf
 
 f_rolling_vwap(days) => // Function to calculate rolling VWAP
     time_window = days * 24 * 60 * 60 * 1000
@@ -634,121 +628,91 @@ calculate_and_store_previous_vwap(period) => // Function to calculate and store 
         start_index := bar_index
     [poc, upper, lower, start_index]
 
+// Generic helper function to create and manage a line and its corresponding label
+_create_line_and_label(float value, string label_text_str, int x2_time, int x1_time,
+                      color line_clr, color label_bg_clr, color label_text_clr, string tooltip_text_str,
+                      array<line> line_array_target, array<label> label_array_target,
+                      string line_style_str = PVWAP_LINE_STYLE, string label_style_str = DEFAULT_LABEL_STYLE,
+                      string font_family_str = FONT_MONO, int line_width = 1) =>
+    if not na(value)
+        // Create Line
+        line new_line = get_line_from_pool()
+        new_line.set_xy1(x1_time, value)
+        new_line.set_xy2(x2_time, value)
+        new_line.set_color(line_clr)
+        new_line.set_width(line_width)
+        new_line.set_style(line_style_str)
+        array.push(line_array_target, new_line)
+
+        // Create Label
+        label new_label = get_label_from_pool()
+        new_label.set_xy(x2_time, value)
+        new_label.set_text(label_text_str)
+        new_label.set_tooltip(tooltip_text_str)
+        new_label.set_color(label_bg_clr)
+        new_label.set_textcolor(label_text_clr)
+        new_label.set_style(label_style_str)
+        new_label.set_text_font_family(font_family_str)
+        array.push(label_array_target, new_label)
+
 plot_previous_vwap_levels(anchor_str, p_upper, p_lower, p_poc, p_start_bar, vwap_plot_color) => // Function to plot previous VWAP levels
-    if not na(p_poc) and not na(p_start_bar)
-        int offset_time = time + (pvwap_offset * timeframe.in_seconds(timeframe.period) * 1000) 
-        int line_start_time = offset_time - (KEYLEVEL_LINE_LENGTH * timeframe.in_seconds(timeframe.period) * 1000) 
-        color labelTextColor = color.new(vwap_plot_color, 45)
-        color shortLineColor = color.new(vwap_plot_color, 30)
-        string lower_label_text = ""
-        string poc_label_text = ""
-        string upper_label_text = ""
+    if not na(p_poc) and not na(p_start_bar) // p_start_bar is not directly used by _create_line_and_label but indicates valid period
+        int label_x_time = time + (pvwap_offset * timeframe.in_seconds(timeframe.period) * 1000)
+        int line_start_x_time = label_x_time - (KEYLEVEL_LINE_LENGTH * timeframe.in_seconds(timeframe.period) * 1000)
+
+        color baseLabelTextColor = color.new(vwap_plot_color, 45) // Base color for text, can be overridden by specific logic if any
+        color baseLineColor = color.new(vwap_plot_color, 30)    // Base color for line
+
+        string lower_text, poc_text, upper_text
         if anchor_str == 'Week'
-            lower_label_text := "pWvaL"
-            poc_label_text := "pWvwap"
-            upper_label_text := "pWvaH"
+            lower_text := "pWvaL"; poc_text := "pWvwap"; upper_text := "pWvaH"
         else if anchor_str == 'Month'
-            lower_label_text := "pMvaL"
-            poc_label_text := "pMvwap"
-            upper_label_text := "pMvaH"
+            lower_text := "pMvaL"; poc_text := "pMvwap"; upper_text := "pMvaH"
         else if anchor_str == 'Quarter'
-            lower_label_text := "pQvaL"
-            poc_label_text := "pQvwap"
-            upper_label_text := "pQvaH"
+            lower_text := "pQvaL"; poc_text := "pQvwap"; upper_text := "pQvaH"
         else if anchor_str == 'Year'
-            lower_label_text := "pYvaL"
-            poc_label_text := "pYvwap"
-            upper_label_text := "pYvaH"
-        else
-            prefix = switch anchor_str
+            lower_text := "pYvaL"; poc_text := "pYvwap"; upper_text := "pYvaH"
+        else // Fallback for custom anchor names if used by non-TF-consistent pVWAP plotting
+            string prefix = switch anchor_str
                 'Week'    => 'pw'
                 'Month'   => 'pm'
                 'Quarter' => 'pq'
                 'Year'    => 'py'
-                => 'p'
-            lower_label_text := prefix + 'VWAP -1'
-            poc_label_text := prefix + 'VWAP'
-            upper_label_text := prefix + 'VWAP +1'
+                => 'p' // Default prefix
+            lower_text := prefix + 'VWAP -1'; poc_text := prefix + 'VWAP'; upper_text := prefix + 'VWAP +1'
+
+        // Plot Lower Band
         if not na(p_lower)
-            line_lower = get_line_from_pool()
-            line_lower.set_xy1(line_start_time, p_lower)
-            line_lower.set_xy2(offset_time, p_lower)
-            line_lower.set_color(shortLineColor)
-            line_lower.set_width(1)
-            line_lower.set_style(PVWAP_LINE_STYLE)
-            array.push(pvwap_lines, line_lower)
-            lbl_lower = get_label_from_pool()
-            lbl_lower.set_xy(offset_time, p_lower)
-            lbl_lower.set_text(lower_label_text)
-            lbl_lower.set_tooltip(str.tostring(p_lower, pvwap_format_level))
-            lbl_lower.set_color(label_color_setting)
-            lbl_lower.set_textcolor(labelTextColor)
-            lbl_lower.set_style(DEFAULT_LABEL_STYLE)
-            lbl_lower.set_text_font_family(FONT_MONO)
-            array.push(pvwap_labels, lbl_lower)
+            _create_line_and_label(p_lower, lower_text, label_x_time, line_start_x_time,
+                                 baseLineColor, label_color_setting, baseLabelTextColor,
+                                 str.tostring(p_lower, pvwap_format_level), pvwap_lines, pvwap_labels)
+        // Plot Upper Band
         if not na(p_upper)
-            line_upper = get_line_from_pool()
-            line_upper.set_xy1(line_start_time, p_upper)
-            line_upper.set_xy2(offset_time, p_upper)
-            line_upper.set_color(shortLineColor)
-            line_upper.set_width(1)
-            line_upper.set_style(PVWAP_LINE_STYLE)
-            array.push(pvwap_lines, line_upper)
-            lbl_upper = get_label_from_pool()
-            lbl_upper.set_xy(offset_time, p_upper)
-            lbl_upper.set_text(upper_label_text)
-            lbl_upper.set_tooltip(str.tostring(p_upper, pvwap_format_level))
-            lbl_upper.set_color(label_color_setting)
-            lbl_upper.set_textcolor(labelTextColor)
-            lbl_upper.set_style(DEFAULT_LABEL_STYLE)
-            lbl_upper.set_text_font_family(FONT_MONO)
-            array.push(pvwap_labels, lbl_upper)
-        line_poc = get_line_from_pool()
-        line_poc.set_xy1(line_start_time, p_poc)
-        line_poc.set_xy2(offset_time, p_poc)
-        line_poc.set_color(shortLineColor)
-        line_poc.set_width(1)
-        line_poc.set_style(PVWAP_LINE_STYLE)
-        array.push(pvwap_lines, line_poc)
-        lbl_poc = get_label_from_pool()
-        lbl_poc.set_xy(offset_time, p_poc)
-        lbl_poc.set_text(poc_label_text)
-        lbl_poc.set_tooltip(str.tostring(p_poc, pvwap_format_level))
-        lbl_poc.set_color(label_color_setting)
-        lbl_poc.set_textcolor(labelTextColor)
-        lbl_poc.set_style(DEFAULT_LABEL_STYLE)
-        lbl_poc.set_text_font_family(FONT_MONO)
-        array.push(pvwap_labels, lbl_poc)
+            _create_line_and_label(p_upper, upper_text, label_x_time, line_start_x_time,
+                                 baseLineColor, label_color_setting, baseLabelTextColor,
+                                 str.tostring(p_upper, pvwap_format_level), pvwap_lines, pvwap_labels)
+        // Plot POC
+        _create_line_and_label(p_poc, poc_text, label_x_time, line_start_x_time,
+                             baseLineColor, label_color_setting, baseLabelTextColor,
+                             str.tostring(p_poc, pvwap_format_level), pvwap_lines, pvwap_labels)
 
 plot_key_open_level(levelValue, levelName, levelColor, offset_val, format_str) => // Function to plot key open levels
     if not na(levelValue)
-        int offset_time = time + (offset_val * timeframe.in_seconds(timeframe.period) * 1000) 
-        int line_start_time = offset_time - (KEYLEVEL_LINE_LENGTH * timeframe.in_seconds(timeframe.period) * 1000) 
-        color lineColor = levelColor
-        color bgColor = label_color_setting
-        color labelTextColor = switch levelName
+        int label_x_time = time + (offset_val * timeframe.in_seconds(timeframe.period) * 1000)
+        int line_start_x_time = label_x_time - (KEYLEVEL_LINE_LENGTH * timeframe.in_seconds(timeframe.period) * 1000)
+
+        // Determine specific text color based on levelName, using levelColor as base for general cases
+        color specificLabelTextColor = switch levelName
             "YO" => color.new(#009688, 45)
             "QO" => color.new(#FF4081, 45)
             "MO" => color.new(#00E676, 45)
             "WO" => color.new(#29B6F6, 45)
-            "DO" => color.new(color_DailyOpen, 45)
-            => color.new(levelColor, 45)
-        line_obj = get_line_from_pool()
-        line_obj.set_xy1(line_start_time, levelValue)
-        line_obj.set_xy2(offset_time, levelValue)
-        line_obj.set_color(lineColor)
-        line_obj.set_width(1)
-        line_obj.set_style(PVWAP_LINE_STYLE)
-        array.push(key_open_lines, line_obj)
-        label_obj = get_label_from_pool()
-        label_obj.set_xy(offset_time, levelValue)
-        label_obj.set_text(levelName)
-        label_obj.set_tooltip(str.tostring(levelValue, format_str))
-        label_obj.set_color(bgColor)
-        label_obj.set_textcolor(labelTextColor)
-        label_obj.set_style(DEFAULT_LABEL_STYLE)
-        label_obj.set_text_font_family(FONT_MONO)
-        array.push(key_open_labels, label_obj)
+            "DO" => color.new(color_DailyOpen, 45) // Uses the input color for DailyOpen directly
+            => color.new(levelColor, 45) // Default uses the passed levelColor
+
+        _create_line_and_label(levelValue, levelName, label_x_time, line_start_x_time,
+                             levelColor, label_color_setting, specificLabelTextColor,
+                             str.tostring(levelValue, format_str), key_open_lines, key_open_labels)
 
 f_get_yearly_open() => // Function to get yearly open price
     var float yo = na
@@ -839,50 +803,63 @@ bool is_monthly_or_higher_tf = curr_tf_period == "M" or curr_tf_period == "3M" o
 [monthly_poc_val, monthly_upper_val, monthly_lower_val, monthly_start_val] = calculate_and_store_previous_vwap('M')
 [weekly_poc_val, weekly_upper_val, weekly_lower_val, weekly_start_val] = calculate_and_store_previous_vwap('W')
 
+// Helper function to update persistent pVWAP state variables
+_update_pvwap_state(string period_code, float poc_val, float upper_val, float lower_val, int start_val,
+                      bool is_new_period_generic_flag, float fallback_lower_val, float fallback_upper_val, float fallback_poc_val) =>
+    bool primary_data_valid = not na(poc_val) and not na(start_val)
 
-if not na(weekly_poc_val) and not na(weekly_start_val)
-    lastWeeklyPOC := weekly_poc_val
-    lastWeeklyUpper := weekly_upper_val
-    lastWeeklyLower := weekly_lower_val
-    thisWeekStart := int(weekly_start_val)
-else if isNewWeek
-    lastWeeklyLower := weekly_period_lower[1]
-    lastWeeklyUpper := weekly_period_upper[1]
-    lastWeeklyPOC := weekly_period_vwap[1]
-    thisWeekStart := bar_index
+    if period_code == 'Y'
+        if primary_data_valid
+            lastYearlyPOC := poc_val
+            lastYearlyUpper := upper_val
+            lastYearlyLower := lower_val
+            thisYearStart := int(start_val)
+        else if is_new_period_generic_flag // Fallback if primary data from calculate_and_store_previous_vwap is not available
+            lastYearlyLower := fallback_lower_val
+            lastYearlyUpper := fallback_upper_val
+            lastYearlyPOC := fallback_poc_val
+            thisYearStart := bar_index
+    else if period_code == 'Q'
+        if primary_data_valid
+            lastQuarterlyPOC := poc_val
+            lastQuarterlyUpper := upper_val
+            lastQuarterlyLower := lower_val
+            thisQuarterStart := int(start_val)
+        else if is_new_period_generic_flag
+            lastQuarterlyLower := fallback_lower_val
+            lastQuarterlyUpper := fallback_upper_val
+            lastQuarterlyPOC := fallback_poc_val
+            thisQuarterStart := bar_index
+    else if period_code == 'M'
+        if primary_data_valid
+            lastMonthlyPOC := poc_val
+            lastMonthlyUpper := upper_val
+            lastMonthlyLower := lower_val
+            thisMonthStart := int(start_val)
+        else if is_new_period_generic_flag
+            lastMonthlyLower := fallback_lower_val
+            lastMonthlyUpper := fallback_upper_val
+            lastMonthlyPOC := fallback_poc_val
+            thisMonthStart := bar_index
+    else if period_code == 'W'
+        if primary_data_valid
+            lastWeeklyPOC := poc_val
+            lastWeeklyUpper := upper_val
+            lastWeeklyLower := lower_val
+            thisWeekStart := int(start_val)
+        else if is_new_period_generic_flag
+            lastWeeklyLower := fallback_lower_val
+            lastWeeklyUpper := fallback_upper_val
+            lastWeeklyPOC := fallback_poc_val
+            thisWeekStart := bar_index
 
-if not na(monthly_poc_val) and not na(monthly_start_val)
-    lastMonthlyPOC := monthly_poc_val
-    lastMonthlyUpper := monthly_upper_val
-    lastMonthlyLower := monthly_lower_val
-    thisMonthStart := int(monthly_start_val)
-else if isNewMonth
-    lastMonthlyLower := monthly_period_lower[1]
-    lastMonthlyUpper := monthly_period_upper[1]
-    lastMonthlyPOC := monthly_period_vwap[1]
-    thisMonthStart := bar_index
-
-if not na(quarterly_poc_val) and not na(quarterly_start_val)
-    lastQuarterlyPOC := quarterly_poc_val
-    lastQuarterlyUpper := quarterly_upper_val
-    lastQuarterlyLower := quarterly_lower_val
-    thisQuarterStart := int(quarterly_start_val)
-else if isNewQuarter
-    lastQuarterlyLower := quarterly_period_lower[1]
-    lastQuarterlyUpper := quarterly_period_upper[1]
-    lastQuarterlyPOC := quarterly_period_vwap[1]
-    thisQuarterStart := bar_index
-
-if not na(yearly_poc_val) and not na(yearly_start_val)
-    lastYearlyPOC := yearly_poc_val
-    lastYearlyUpper := yearly_upper_val
-    lastYearlyLower := yearly_lower_val
-    thisYearStart := int(yearly_start_val)
-else if isNewYear
-    lastYearlyLower := yearly_period_lower[1]
-    lastYearlyUpper := yearly_period_upper[1]
-    lastYearlyPOC := yearly_period_vwap[1]
-    thisYearStart := bar_index
+// Update pVWAP states using the helper.
+// The fallback (else if isNew...) is to ensure levels are updated even if 'calculate_and_store_previous_vwap'
+// might not return data (e.g., at the very beginning of a chart history for the fixed TF).
+_update_pvwap_state('Y', yearly_poc_val, yearly_upper_val, yearly_lower_val, yearly_start_val, isNewYear, yearly_period_lower[1], yearly_period_upper[1], yearly_period_vwap[1])
+_update_pvwap_state('Q', quarterly_poc_val, quarterly_upper_val, quarterly_lower_val, quarterly_start_val, isNewQuarter, quarterly_period_lower[1], quarterly_period_upper[1], quarterly_period_vwap[1])
+_update_pvwap_state('M', monthly_poc_val, monthly_upper_val, monthly_lower_val, monthly_start_val, isNewMonth, monthly_period_lower[1], monthly_period_upper[1], monthly_period_vwap[1])
+_update_pvwap_state('W', weekly_poc_val, weekly_upper_val, weekly_lower_val, weekly_start_val, isNewWeek, weekly_period_lower[1], weekly_period_upper[1], weekly_period_vwap[1])
 
 bool valid_yearOpen_val = not na(yearOpen_ref) and yearOpen_ref > 0
 bool valid_monthOpen_val = not na(monthOpen_ref) and monthOpen_ref > 0
@@ -939,8 +916,9 @@ if vp_enable
         lookback_bars = bar_index - vp_last_bar_idx_profile_start > 0 ? bar_index - vp_last_bar_idx_profile_start : 1
 
         // Determine high and low for the current profile period
-        profile_high_price = ta.highest(high[1], lookback_bars) // Use high[1] to avoid current bar's forming high
-        profile_low_price = ta.lowest(low[1], lookback_bars)   // Use low[1] to avoid current bar's forming low
+        // Use high[1]/low[1] to get settled values from previous bars within the lookback period, avoiding fluctuations of the current live bar.
+        profile_high_price = ta.highest(high[1], lookback_bars)
+        profile_low_price = ta.lowest(low[1], lookback_bars)
 
         // Recalculate profile on new period or on the last bar
         is_new_vp_period = timeframe.change(vp_profile_tf)
@@ -1026,11 +1004,11 @@ if vp_enable
             vp_value_area_high_idx := na
 
             // 预先计算总成交量
-            float total_volume = 0.0
-            for i = 0 to array.size(vp_volume_values) - 1
-                total_volume += array.get(vp_volume_values, i)
+            float total_volume = array.sum(vp_volume_values)
 
-            // 优化扩展算法
+            // 优化扩展算法 (Value Area Calculation)
+            // Starts from POC and expands outwards, adding the larger of the two adjacent rows' volumes
+            // until 70% of total volume is accumulated.
             if total_volume > 0
                 int poc_index = array.indexof(vp_volume_values, max_volume_for_poc)
                 float target_volume = total_volume * 0.7
@@ -1042,18 +1020,32 @@ if vp_enable
                 int l_ptr = poc_index - 1
                 int r_ptr = poc_index + 1
                 int loop_count = 0
-                int max_loops = vp_rows * 2  // 防止无限循环
-                
+                int max_loops = vp_rows * 2  // Safety break for the while loop
+
                 while current_volume < target_volume and loop_count < max_loops
                     loop_count += 1
-                    float vol_left = l_ptr >= 0 ? array.get(vp_volume_values, l_ptr) : -1
-                    float vol_right = r_ptr < vp_rows ? array.get(vp_volume_values, r_ptr) : -1
+                    float vol_left = l_ptr >= 0 ? array.get(vp_volume_values, l_ptr) : -1.0 // Use -1.0 to ensure vol_right is chosen if vol_left is out of bounds
+                    float vol_right = r_ptr < vp_rows ? array.get(vp_volume_values, r_ptr) : -1.0 // Use -1.0 to ensure vol_left is chosen if vol_right is out of bounds
                     
+                    // If both are valid, pick the larger one. If one is invalid (-1), pick the other.
+                    // If both are -1 (e.g. vp_rows = 1), loop will break or has already broken.
+                    if vol_left == -1.0 and vol_right == -1.0 // Should not happen if poc_index is valid and vp_rows > 0
+                        break
+
                     if vol_left > vol_right
                         current_volume += vol_left
                         vp_value_area_low_idx := l_ptr
                         l_ptr -= 1
-                    else
+                    else if vol_right > vol_left // If vol_right is greater or vol_left was -1.0
+                        current_volume += vol_right
+                        vp_value_area_high_idx := r_ptr
+                        r_ptr += 1
+                    else // vol_left == vol_right, and both are not -1.0. Expand in both directions or based on a tie-breaking rule.
+                         // Current logic will favor expanding right due to the sequence of checks.
+                         // For simplicity, this tie-breaking (or lack thereof) is often acceptable.
+                         // To make it symmetrical on tie, one might alternate or expand both if sum is still less than target.
+                         // However, the current code will pick right if they are equal and positive.
+                         // If one side is exhausted (e.g. l_ptr < 0), vol_left is -1, so vol_right (if > -1) wins.
                         current_volume += vol_right
                         vp_value_area_high_idx := r_ptr
                         r_ptr += 1
@@ -1188,7 +1180,7 @@ if vp_enable
                     array.unshift(vp_historical_pocs, line.new(vp_last_time_profile_start, poc_price, time, poc_price, 
                                       xloc = xloc.bar_time, color = vp_poc_color, width = 1, style=DEFAULT_LINE_STYLE))
                     // 限制历史VPOC数量
-                    if array.size(vp_historical_pocs) > max_historical_profiles * 3
+                    if array.size(vp_historical_pocs) > max_historical_profiles
                         line.delete(array.pop(vp_historical_pocs))
 
                 // Clean up current VPOC drawings from previous period (if any) using pool
