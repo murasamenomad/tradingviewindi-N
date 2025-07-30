@@ -383,9 +383,11 @@ detect_market_order_bubbles() =>
     
     // 只在15分钟及以下时间框架显示
     if timeframe.in_seconds(timeframe.period) <= timeframe.in_seconds('15')
-        // 只显示指定天数以内的数据
-        max_bars_back = mob_show_days * 24 * 4 // 假设15分钟K线：3天*24小时*4根/小时
-        if bar_index >= max_bars_back
+        // 计算N天前的时间点（毫秒）
+        cutoff_time = timenow - (mob_show_days * 24 * 60 * 60 * 1000)
+        
+        // 只显示最近指定天数内的数据
+        if time >= cutoff_time
             [buy_vol_temp, sell_vol_temp] = estimate_buy_sell_volume()
             buy_vol := buy_vol_temp
             sell_vol := sell_vol_temp
@@ -410,6 +412,10 @@ detect_market_order_bubbles() =>
             
             if is_large_sell and mob_use_transparency
                 sell_transp := get_bubble_transparency(sell_ratio)
+        else
+            // 如果不在时间范围内，确保不显示气泡
+            is_large_buy := false
+            is_large_sell := false
     
     [is_large_buy, is_large_sell, buy_vol, sell_vol, buy_ratio, sell_ratio, buy_transp, sell_transp]
 
