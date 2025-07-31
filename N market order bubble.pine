@@ -149,12 +149,15 @@ var int cached_month = na
 var int cached_year = na
 var int cached_quarter = na
 var int cached_dayofweek = na
-var int prev_bar_index = na
-var bool is_new_day = false
-var bool is_new_week = false
-var bool is_new_month = false
-var bool is_new_quarter = false
-var bool is_new_year = false
+
+var label[] mob_labels = array.new_label() // 为市价单气泡标签创建一个数组
+
+// 添加在全局变量声明区域
+var bool isNewWeekPeriod = false
+var bool isNewMonthPeriod = false
+var bool isNewQuarterPeriod = false
+var bool isNewYearPeriod = false
+var bool isNewDayPeriod = false
 
 var line[] line_pool = array.new_line()
 var label[] label_pool = array.new_label()
@@ -583,7 +586,7 @@ calculate_basic_vwap(src, reset_condition) => // Function to calculate basic VWA
             lowerBand := na
     [vwapValue, upperBand, lowerBand]
 
-f_calculate_current_vwap_native(src, is_active, is_new_period) => // Function to calculate current VWAP natively
+f_calculate_current_vwap_native(src, is_active, is_new_period) =>
     float vwapValue = na
     float upperBand = na
     float lowerBand = na
@@ -604,7 +607,7 @@ f_calculate_current_vwap_native(src, is_active, is_new_period) => // Function to
             lowerBand := na
     [vwapValue, upperBand, lowerBand]
 
-f_calculate_current_vwap_adaptive(src, is_active, anchor_period) => // Function to calculate current VWAP adaptively
+f_calculate_current_vwap_adaptive(src, is_active, anchor_period) =>
     float vwapValue = na
     float upperBand = na
     float lowerBand = na
@@ -621,6 +624,20 @@ f_calculate_current_vwap_adaptive(src, is_active, anchor_period) => // Function 
         else if anchor_period == 'Day'
             vwap_type := 'daily'
         ref_tf = get_adaptive_anchor_tf(vwap_type)
+        
+        // 检测当前周期是否开始
+        bool is_current_period_start = false
+        if anchor_period == 'Week'
+            is_current_period_start := isNewWeekPeriod
+        else if anchor_period == 'Month'
+            is_current_period_start := isNewMonthPeriod
+        else if anchor_period == 'Quarter'
+            is_current_period_start := isNewQuarterPeriod
+        else if anchor_period == 'Year'
+            is_current_period_start := isNewYearPeriod
+        else if anchor_period == 'Day'
+            is_current_period_start := isNewDayPeriod
+            
         isWeekStart = dayofweek(time) == dayofweek.monday and (dayofweek(time[1]) != dayofweek.monday)
         isMonthStart = month(time) != month(time[1])
         isQuarterStart = get_quarter(time) != get_quarter(time[1])
@@ -629,6 +646,7 @@ f_calculate_current_vwap_adaptive(src, is_active, anchor_period) => // Function 
         period_start_condition = anchor_period == 'Week' ? isWeekStart : anchor_period == 'Month' ? isMonthStart : anchor_period == 'Quarter' ? isQuarterStart : anchor_period == 'Year' ? isYearStart : anchor_period == 'Day' ? isDayStart : true
         reset_condition = request.security(syminfo.tickerid, ref_tf, period_start_condition, gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
         [vwap_value_sec, upper_band_sec, lower_band_sec] = request.security(syminfo.tickerid, ref_tf, calculate_basic_vwap(src, reset_condition), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+        
         vwapValue := vwap_value_sec
         upperBand := upper_band_sec
         lowerBand := lower_band_sec
@@ -872,6 +890,13 @@ cached_month := current_month
 cached_year := current_year
 cached_quarter := current_quarter
 cached_dayofweek := current_dayofweek
+
+// 检测各周期开始
+isNewWeekPeriod := dayofweek(time) == dayofweek.monday and (dayofweek(time[1]) != dayofweek.monday)
+isNewMonthPeriod := month(time) != month(time[1])
+isNewQuarterPeriod := get_quarter(time) != get_quarter(time[1])
+isNewYearPeriod := year(time) != year(time[1])
+isNewDayPeriod := dayofmonth(time) != dayofmonth(time[1]) or month(time) != month(time[1])
 
 bool is_small_tf = timeframe.in_seconds(timeframe.period) <= timeframe.in_seconds("60") 
 rvwap_7d_raw = is_small_tf ? f_rolling_vwap_for_small_tf(7, rvwap_ref_tf) : f_rolling_vwap(7)
@@ -1346,31 +1371,77 @@ plot(show_30d ? rvwap_30d : na, title='30D RVWAP', color=color_30d, linewidth=1)
 plot(show_90d ? rvwap_90d : na, title='90D RVWAP', color=color_90d, linewidth=1)
 plot(show_365d ? rvwap_365d : na, title='365D RVWAP', color=color_365d, linewidth=1)
 
-vwap_plot1 = plot(VWAP1_Ctl and (Anchor1 != 'Quarter' or not is_monthly_or_higher_tf) ? vwap1 : na, title='VWAP 1', color=VWAP1_Col, linewidth=1)
-lowerBand_1 = plot(VWAP1_Ctl and (Anchor1 != 'Quarter' or not is_monthly_or_higher_tf) ? band1_lower : na, title='L Band 1', color=Bands1_Col, linewidth=1)
-upperBand_1 = plot(VWAP1_Ctl and (Anchor1 != 'Quarter' or not is_monthly_or_higher_tf) ? band1_upper : na, title='U Band 1', color=Bands1_Col, linewidth=1)
-fill(upperBand_1, lowerBand_1, color=VWAP1_Bgc, title='Fill 1')
+// 在绘图部分开头添加这些变量
+var bool isNewPeriod1 = f_is_new_period(Anchor1)
+var bool isNewPeriod2 = f_is_new_period(Anchor2)
+var bool isNewPeriod3 = f_is_new_period(Anchor3)
+var bool isNewPeriod4 = f_is_new_period(Anchor4)
+var bool isNewPeriod5 = f_is_new_period(Anchor5)
 
-vwap_plot2 = plot(VWAP2_Ctl and (Anchor2 != 'Month' or not is_weekly_or_higher_tf) ? vwap2 : na, title='VWAP 2', color=VWAP2_Col, linewidth=1)
-lowerBand_2 = plot(VWAP2_Ctl and (Anchor2 != 'Month' or not is_weekly_or_higher_tf) ? band2_lower : na, title='L Band 2', color=Bands2_Col, linewidth=1)
-upperBand_2 = plot(VWAP2_Ctl and (Anchor2 != 'Month' or not is_weekly_or_higher_tf) ? band2_upper : na, title='U Band 2', color=Bands2_Col, linewidth=1)
-fill(upperBand_2, lowerBand_2, color=VWAP2_Bgc, title='Fill 2')
+// VWAP 1 (Quarterly) - 修正版
+vwap1_plot_value = VWAP1_Ctl and (Anchor1 != 'Quarter' or not is_monthly_or_higher_tf) ? vwap1 : na
+lowerBand1_plot_value = VWAP1_Ctl and (Anchor1 != 'Quarter' or not is_monthly_or_higher_tf) ? band1_lower : na
+upperBand1_plot_value = VWAP1_Ctl and (Anchor1 != 'Quarter' or not is_monthly_or_higher_tf) ? band1_upper : na
 
-vwap_plot3 = plot(VWAP3_Ctl and (Anchor3 != 'Week' or not is_12h_or_higher_tf) ? vwap3 : na, title='VWAP 3', color=VWAP3_Col, linewidth=1)
-lowerBand_3 = plot(VWAP3_Ctl and (Anchor3 != 'Week' or not is_12h_or_higher_tf) ? band3_lower : na, title='L Band 3', color=Bands3_Col, linewidth=1)
-upperBand_3 = plot(VWAP3_Ctl and (Anchor3 != 'Week' or not is_12h_or_higher_tf) ? band3_upper : na, title='U Band 3', color=Bands3_Col, linewidth=1)
-fill(upperBand_3, lowerBand_3, color=VWAP3_Bgc, title='Fill 3')
+isNewPeriod1 := f_is_new_period(Anchor1) // 更新状态
 
-vwap_plot4 = plot(VWAP4_Ctl and not is_4h_or_higher_tf ? vwap4 : na, title='VWAP 4', color=VWAP4_Col, linewidth=1)
-lowerBand_4 = plot(VWAP4_Ctl and not is_4h_or_higher_tf ? band4_lower : na, title='L Band 4', color=Bands4_Col, linewidth=1)
-upperBand_4 = plot(VWAP4_Ctl and not is_4h_or_higher_tf ? band4_upper : na, title='U Band 4', color=Bands4_Col, linewidth=1)
-fill(upperBand_4, lowerBand_4, color=VWAP4_Bgc, title='Fill 4')
+vwap_plot1 = plot(vwap1_plot_value, title='VWAP 1', color=isNewPeriod1 ? na : VWAP1_Col, linewidth=1)
+lowerBand_1 = plot(lowerBand1_plot_value, title='L Band 1', color=isNewPeriod1 ? na : Bands1_Col, linewidth=1)
+upperBand_1 = plot(upperBand1_plot_value, title='U Band 1', color=isNewPeriod1 ? na : Bands1_Col, linewidth=1)
 
-vwap_plot5 = plot(VWAP5_Ctl ? vwap5 : na, title='VWAP 5', color=VWAP5_Col, linewidth=1)
-lowerBand_5 = plot(VWAP5_Ctl ? band5_lower : na, title='L Band 5', color=Bands5_Col, linewidth=1)
-upperBand_5 = plot(VWAP5_Ctl ? band5_upper : na, title='U Band 5', color=Bands5_Col, linewidth=1)
-fill(upperBand_5, lowerBand_5, color=VWAP5_Bgc, title='Fill 5')
+fill(upperBand_1, lowerBand_1, color=isNewPeriod1 ? na : VWAP1_Bgc, title='Fill 1')
 
+// VWAP 2 (Monthly) - 修正版
+vwap2_plot_value = VWAP2_Ctl and (Anchor2 != 'Month' or not is_weekly_or_higher_tf) ? vwap2 : na
+lowerBand2_plot_value = VWAP2_Ctl and (Anchor2 != 'Month' or not is_weekly_or_higher_tf) ? band2_lower : na
+upperBand2_plot_value = VWAP2_Ctl and (Anchor2 != 'Month' or not is_weekly_or_higher_tf) ? band2_upper : na
+
+isNewPeriod2 := f_is_new_period(Anchor2) // 更新状态
+
+vwap_plot2 = plot(vwap2_plot_value, title='VWAP 2', color=isNewPeriod2 ? na : VWAP2_Col, linewidth=1)
+lowerBand_2 = plot(lowerBand2_plot_value, title='L Band 2', color=isNewPeriod2 ? na : Bands2_Col, linewidth=1)
+upperBand_2 = plot(upperBand2_plot_value, title='U Band 2', color=isNewPeriod2 ? na : Bands2_Col, linewidth=1)
+
+fill(upperBand_2, lowerBand_2, color=isNewPeriod2 ? na : VWAP2_Bgc, title='Fill 2')
+
+// VWAP 3 (Weekly) - 修正版
+vwap3_plot_value = VWAP3_Ctl and (Anchor3 != 'Week' or not is_12h_or_higher_tf) ? vwap3 : na
+lowerBand3_plot_value = VWAP3_Ctl and (Anchor3 != 'Week' or not is_12h_or_higher_tf) ? band3_lower : na
+upperBand3_plot_value = VWAP3_Ctl and (Anchor3 != 'Week' or not is_12h_or_higher_tf) ? band3_upper : na
+
+isNewPeriod3 := f_is_new_period(Anchor3) // 更新状态
+
+vwap_plot3 = plot(vwap3_plot_value, title='VWAP 3', color=isNewPeriod3 ? na : VWAP3_Col, linewidth=1)
+lowerBand_3 = plot(lowerBand3_plot_value, title='L Band 3', color=isNewPeriod3 ? na : Bands3_Col, linewidth=1)
+upperBand_3 = plot(upperBand3_plot_value, title='U Band 3', color=isNewPeriod3 ? na : Bands3_Col, linewidth=1)
+
+fill(upperBand_3, lowerBand_3, color=isNewPeriod3 ? na : VWAP3_Bgc, title='Fill 3')
+
+// VWAP 4 (Daily) - 修正版
+vwap4_plot_value = VWAP4_Ctl and not is_4h_or_higher_tf ? vwap4 : na
+lowerBand4_plot_value = VWAP4_Ctl and not is_4h_or_higher_tf ? band4_lower : na
+upperBand4_plot_value = VWAP4_Ctl and not is_4h_or_higher_tf ? band4_upper : na
+
+isNewPeriod4 := f_is_new_period(Anchor4) // 更新状态
+
+vwap_plot4 = plot(vwap4_plot_value, title='VWAP 4', color=isNewPeriod4 ? na : VWAP4_Col, linewidth=1)
+lowerBand_4 = plot(lowerBand4_plot_value, title='L Band 4', color=isNewPeriod4 ? na : Bands4_Col, linewidth=1)
+upperBand_4 = plot(upperBand4_plot_value, title='U Band 4', color=isNewPeriod4 ? na : Bands4_Col, linewidth=1)
+
+fill(upperBand_4, lowerBand_4, color=isNewPeriod4 ? na : VWAP4_Bgc, title='Fill 4')
+
+// VWAP 5 (Yearly) - 修正版
+vwap5_plot_value = VWAP5_Ctl ? vwap5 : na
+lowerBand5_plot_value = VWAP5_Ctl ? band5_lower : na
+upperBand5_plot_value = VWAP5_Ctl ? band5_upper : na
+
+isNewPeriod5 := f_is_new_period(Anchor5) // 更新状态
+
+vwap_plot5 = plot(vwap5_plot_value, title='VWAP 5', color=isNewPeriod5 ? na : VWAP5_Col, linewidth=1)
+lowerBand_5 = plot(lowerBand5_plot_value, title='L Band 5', color=isNewPeriod5 ? na : Bands5_Col, linewidth=1)
+upperBand_5 = plot(upperBand5_plot_value, title='U Band 5', color=isNewPeriod5 ? na : Bands5_Col, linewidth=1)
+
+fill(upperBand_5, lowerBand_5, color=isNewPeriod5 ? na : VWAP5_Bgc, title='Fill 5')
 
 if barstate.islast 
     bool force_clean_labels = true 
@@ -1582,26 +1653,43 @@ plotshape(plot_sell_bubble_normal, title="Sell Bubble Normal", style=shape.circl
 plotshape(plot_sell_bubble_large, title="Sell Bubble Large", style=shape.circle, location=location.belowbar, color=sell_color, size=size.large)
 plotshape(plot_sell_bubble_huge, title="Sell Bubble Huge", style=shape.circle, location=location.belowbar, color=sell_color, size=size.huge)
 
-// 如果需要显示文本，使用label
+// 如果需要显示文本，使用label - 优化版
 if mob_show_text and enable_mob
+    // 标签管理：删除超出显示天数范围的旧标签
+    cutoff_time_labels = timenow - (mob_show_days * 24 * 60 * 60 * 1000)
+    if array.size(mob_labels) > 0
+        // 从最旧的标签开始检查 (数组末尾)
+        for i = array.size(mob_labels) - 1 to 0
+            label_to_check = array.get(mob_labels, i)
+            // 检查标签的时间戳是否过时
+            if label.get_x(label_to_check) < cutoff_time_labels
+                label.delete(array.remove(mob_labels, i))
+            else
+                // 假设标签是按时间顺序添加的，一旦遇到有效的，就可以停止检查
+                break
+
     // 买单标签
     if is_large_buy
         buy_label_text = str.tostring(math.round(buy_ratio, 1)) + "x"
-        label.new(x=bar_index, y=high + (high - low) * 0.15, 
-                 text=buy_label_text, 
-                 style=label.style_label_down, 
-                 color=color.new(color.green, buy_transp), 
-                 textcolor=color.white, 
-                 size=size.small)
+        new_buy_label = label.new(x=time, y=high + (high - low) * 0.15,
+             text=buy_label_text, 
+             xloc=xloc.bar_time,
+             style=label.style_label_down,
+             color=color.new(color.green, buy_transp),
+             textcolor=color.white,
+             size=size.small)
+        array.unshift(mob_labels, new_buy_label) // 将新标签添加到数组的开头
     
     // 卖单标签
     if is_large_sell
         sell_label_text = str.tostring(math.round(sell_ratio, 1)) + "x"
-        label.new(x=bar_index, y=low - (high - low) * 0.15, 
-                 text=sell_label_text, 
-                 style=label.style_label_up, 
-                 color=color.new(color.red, sell_transp), 
-                 textcolor=color.white, 
-                 size=size.small)
+        new_sell_label = label.new(x=time, y=low - (high - low) * 0.15,
+             text=sell_label_text, 
+             xloc=xloc.bar_time,
+             style=label.style_label_up,
+             color=color.new(color.red, sell_transp),
+             textcolor=color.white,
+             size=size.small)
+        array.unshift(mob_labels, new_sell_label) // 将新标签添加到数组的开头
 
 // END OF SCRIPT
