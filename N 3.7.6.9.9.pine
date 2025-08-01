@@ -131,14 +131,31 @@ vp_price_format = input.string('#.##', 'VPOC价格格式 (VPOC Price Format)', g
 
 // ==== Market Order Bubble Settings ====
 group_mob = '市价单气泡 (Market Order Bubbles)'
-enable_mob = input.bool(true, '启用市价单气泡', group=group_mob)
-mob_bubble_buy_color = input.color(color.new(#00ff00, 70), '买单气泡颜色', group=group_mob)
-mob_bubble_sell_color = input.color(color.new(#ff0000, 70), '卖单气泡颜色', group=group_mob)
-mob_threshold_multiplier = input.float(2.0, '阈值倍数', step=0.1, group=group_mob, tooltip='超过平均成交量的倍数')
-mob_ma_length = input.int(20, '平均周期', group=group_mob)
-mob_show_days = input.int(3, '显示天数', group=group_mob, tooltip='只显示最近几天的数据')
-mob_show_text = input.bool(true, '显示倍数文本', group=group_mob, tooltip='在气泡中显示成交量倍数')
-mob_use_transparency = input.bool(true, '使用动态透明度', group=group_mob, tooltip='根据订单大小调整透明度')
+i_useCustomTf = input.bool(true, "Use Custom Lower Timeframe", group = group_mob, tooltip = "If unchecked, the script will automatically select a lower timeframe.")
+i_lowerTf = input.timeframe("1", "Lower Timeframe for Delta Calc", group = group_mob, tooltip = "The timeframe used to estimate volume delta.")
+i_statLookback = input.int(50, "Statistical Lookback Period", minval = 2, group = group_mob, tooltip = "Bars for calculating average and standard deviation.")
+i_zscoreThreshold = input.float(2.0, "Z-Score Threshold", minval = 0.5, step = 0.1, group = group_mob, tooltip = "Z-Score threshold for bubble detection.")
+i_maxBubbles = input.int(100, "Max Bubbles to Display", minval = 1, maxval = 500, group = group_mob, tooltip = "Maximum bubbles to keep on chart.")
+i_buyBubbleColor = input.color(color.green, "Buy Bubble Base Color", group = group_mob, tooltip = "Base color for buy bubbles.")
+i_sellBubbleColor = input.color(color.red, "Sell Bubble Base Color", group = group_mob, tooltip = "Base color for sell bubbles.")
+i_showBubbleText = input.bool(true, "Show Bubble Text", group = group_mob, tooltip = "Show delta value text inside bubbles.")
+i_useDynamicSize = input.bool(true, "Use Dynamic Bubble Size", group = group_mob, tooltip = "Adjust bubble size based on Z-Score.")
+i_useDynamicTransparency = input.bool(true, "Use Dynamic Transparency", group = group_mob, tooltip = "Adjust transparency based on Z-Score.")
+i_filterTimeframe = input.bool(true, "Enable Timeframe Filter (<= 15min)", group = group_mob)
+i_filterDate = input.bool(true, "Enable Date Filter (Last 3 Days)", group = group_mob)
+i_daysToShow = input.int(3, "Days to Show", minval = 1, group = group_mob)
+
+// ==== 异常成交量与K线内部剖析 (Abnormal Volume & Intrabar Profile) ====
+group_avp = "异常成交量与剖析 (Abnormal Vol & Profile)"
+avp_ma_period = input.int(20, "成交量MA周期 (Volume MA Period)", minval=1, group=group_avp)
+avp_vol_multiplier = input.float(2.0, "成交量乘数 (Volume Multiplier)", minval=0.1, step=0.1, group=group_avp)
+avp_ltf_timeframe = input.timeframe("5", "剖析用小周期 (Lower Timeframe for Profile)", group=group_avp)
+avp_profile_rows = input.int(25, "剖析行数 (Profile Rows)", minval=5, maxval=100, group=group_avp)
+avp_abnormal_bull_color = input.color(color.new(color.blue, 75), "异常看涨K线颜色 (Abnormal Bullish Bar Color)", group=group_avp)
+avp_abnormal_bear_color = input.color(color.new(color.red, 75), "异常看跌K线颜色 (Abnormal Bearish Bar Color)", group=group_avp)
+avp_pos_delta_color = input.color(color.new(color.green, 0), "正Delta颜色 (Positive Delta Color)", group=group_avp)
+avp_neg_delta_color = input.color(color.new(color.red, 0), "负Delta颜色 (Negative Delta Color)", group=group_avp)
+avp_vpoc_line_width = input.int(2, "VPOC线宽 (VPOC Line Width)", minval=1, group=group_avp)
 
 // =============================================================================
 // ==== GLOBAL VARIABLE DECLARATIONS ====
@@ -150,7 +167,22 @@ var int cached_year = na
 var int cached_quarter = na
 var int cached_dayofweek = na
 
-var label[] mob_labels = array.new_label() // 为市价单气泡标签创建一个数组
+// Abnormal Volume & Profile Global Variables
+var array<float> avp_ltf_high = array.new_float()
+var array<float> avp_ltf_low = array.new_float()
+var array<float> avp_ltf_close = array.new_float()
+var array<float> avp_ltf_open = array.new_float()
+var array<float> avp_ltf_volume = array.new_float()
+
+// Market Order Bubble Global Variables
+var array<label> text_pool = array.new_label()   // 文字的对象池
+var int text_pointer = 0                        // 文字的指针
+
+// Initialize the text pool on the first bar
+if barstate.isfirst
+    // 初始化文字池
+    for i = 0 to i_maxBubbles - 1
+        array.push(text_pool, label.new(na, na, "", style=label.style_none, textcolor=color.white))
 
 // 添加在全局变量声明区域
 var bool isNewWeekPeriod = false
@@ -335,92 +367,67 @@ get_quarter(t) => // Function to get the quarter of a given time
 // =============================================================================
 
 // ==== Market Order Bubble Functions ====
-// 估算买卖成交量
-estimate_buy_sell_volume() =>
-    // 简化的买卖成交量估算
-    body_ratio = math.abs(close - open) / (high - low)
-    body_ratio := na(body_ratio) ? 0 : body_ratio
-    
-    // 声明变量
-    var float buy_volume = 0.0
-    var float sell_volume = 0.0
-    
-    // 根据K线方向和实体大小分配成交量
-    if close > open // 阳线
-        buy_volume := volume * (0.5 + body_ratio * 0.5)
-        sell_volume := volume * (0.5 - body_ratio * 0.3)
-    else if close < open // 阴线
-        buy_volume := volume * (0.5 - body_ratio * 0.3)
-        sell_volume := volume * (0.5 + body_ratio * 0.5)
-    else // 十字星
-        buy_volume := volume * 0.5
-        sell_volume := volume * 0.5
-    
-    [buy_volume, sell_volume]
-
-// 根据成交量比例计算透明度
-get_bubble_transparency(volume_ratio) =>
-    // 成交量越大，透明度越低（越不透明）
-    if volume_ratio < 1.5
-        90 // 很透明
-    else if volume_ratio < 2.0
-        80
-    else if volume_ratio < 3.0
-        70
-    else if volume_ratio < 5.0
-        60
-    else
-        50 // 不透明
-
-// 检测市价单气泡
-detect_market_order_bubbles() =>
-    // 声明返回变量
-    var bool is_large_buy = false
-    var bool is_large_sell = false
-    var float buy_vol = 0.0
-    var float sell_vol = 0.0
-    var float buy_ratio = 0.0
-    var float sell_ratio = 0.0
-    var int buy_transp = 90
-    var int sell_transp = 90
-    
-    // 只在15分钟及以下时间框架显示
-    if timeframe.in_seconds(timeframe.period) <= timeframe.in_seconds('15')
-        // 计算N天前的时间点（毫秒）
-        cutoff_time = timenow - (mob_show_days * 24 * 60 * 60 * 1000)
-        
-        // 只显示最近指定天数内的数据
-        if time >= cutoff_time
-            [buy_vol_temp, sell_vol_temp] = estimate_buy_sell_volume()
-            buy_vol := buy_vol_temp
-            sell_vol := sell_vol_temp
-            
-            // 计算平均成交量
-            avg_volume = ta.sma(volume, mob_ma_length)
-            
-            // 计算阈值
-            volume_threshold = avg_volume * mob_threshold_multiplier
-            
-            // 检测买单和卖单
-            is_large_buy := buy_vol > volume_threshold
-            is_large_sell := sell_vol > volume_threshold
-            
-            // 计算成交量比例（相对于阈值）
-            buy_ratio := is_large_buy ? buy_vol / volume_threshold : 0
-            sell_ratio := is_large_sell ? sell_vol / volume_threshold : 0
-            
-            // 计算透明度
-            if is_large_buy and mob_use_transparency
-                buy_transp := get_bubble_transparency(buy_ratio)
-            
-            if is_large_sell and mob_use_transparency
-                sell_transp := get_bubble_transparency(sell_ratio)
+// Function to automatically select a suitable lower timeframe based on the chart's timeframe.
+f_autoLowerTf() =>
+    string tf = ""
+    if timeframe.isintraday
+        if timeframe.multiplier <= 5
+            tf := "1"
+        else if timeframe.multiplier <= 15
+            tf := "1"
+        else if timeframe.multiplier <= 60
+            tf := "5"
+        else if timeframe.multiplier <= 240
+            tf := "15"
         else
-            // 如果不在时间范围内，确保不显示气泡
-            is_large_buy := false
-            is_large_sell := false
+            tf := "60"
+    else if timeframe.isdaily
+        tf := "60"
+    else if timeframe.isweekly
+        tf := "240"
+    else // Monthly
+        tf := "D"
+    tf
+
+// Function to estimate Volume Delta using the superior intrabar analysis method.
+f_getVolumeDelta(tf) =>
+    // Request lower timeframe OHLCV data all at once
+    [ltf_o, ltf_c, ltf_h, ltf_l, ltf_v] = request.security_lower_tf(syminfo.tickerid, tf, [open, close, high, low, volume])
     
-    [is_large_buy, is_large_sell, buy_vol, sell_vol, buy_ratio, sell_ratio, buy_transp, sell_transp]
+    // Initialize buy and sell volume for the current bar.
+    float buyVol = 0.0
+    float sellVol = 0.0
+    
+    // Accumulate volume based on the direction of each intrabar.
+    if array.size(ltf_c) > 0
+        for i = 0 to array.size(ltf_c) - 1
+            float intrabar_vol = array.get(ltf_v, i) // 直接从数组获取成交量
+            float intrabar_o = array.get(ltf_o, i)
+            float intrabar_c = array.get(ltf_c, i)
+            
+            if intrabar_c > intrabar_o
+                buyVol += intrabar_vol
+            else if intrabar_c < intrabar_o
+                sellVol += intrabar_vol
+            // If open equals close, volume is neutral and not counted.
+    [buyVol, sellVol]
+
+// Function to get dynamic transparency based on Z-Score
+f_getBubbleTransparency(zscore) =>
+    if not i_useDynamicTransparency
+        75 // Default transparency
+    else
+        absZscore = math.abs(zscore)
+        if absZscore < 2.0
+            90 // Very transparent
+        else if absZscore < 2.5
+            80
+        else if absZscore < 3.5
+            70
+        else if absZscore < 5.0
+            60
+        else
+            50 // Very opaque (significant event)
 
 detect_timeframe_changes() => // Function to detect timeframe changes
     current_day = dayofmonth(time)
@@ -624,19 +631,6 @@ f_calculate_current_vwap_adaptive(src, is_active, anchor_period) =>
         else if anchor_period == 'Day'
             vwap_type := 'daily'
         ref_tf = get_adaptive_anchor_tf(vwap_type)
-        
-        // 检测当前周期是否开始
-        bool is_current_period_start = false
-        if anchor_period == 'Week'
-            is_current_period_start := isNewWeekPeriod
-        else if anchor_period == 'Month'
-            is_current_period_start := isNewMonthPeriod
-        else if anchor_period == 'Quarter'
-            is_current_period_start := isNewQuarterPeriod
-        else if anchor_period == 'Year'
-            is_current_period_start := isNewYearPeriod
-        else if anchor_period == 'Day'
-            is_current_period_start := isNewDayPeriod
             
         isWeekStart = dayofweek(time) == dayofweek.monday and (dayofweek(time[1]) != dayofweek.monday)
         isMonthStart = month(time) != month(time[1])
@@ -860,28 +854,92 @@ dailyOpen_ref = use_ref_tf_for_opens ? request.security(syminfo.tickerid, "D", f
 // =============================================================================
 
 // ==== Market Order Bubble Calculations ====
-[is_large_buy, is_large_sell, buy_vol, sell_vol, buy_ratio, sell_ratio, buy_transp, sell_transp] = detect_market_order_bubbles()
+// Determine the lower timeframe to use.
+string finalLowerTf = i_useCustomTf ? i_lowerTf : f_autoLowerTf()
 
-// 计算绘图条件（全局作用域）
-avg_volume = ta.sma(volume, mob_ma_length)
-volume_threshold = avg_volume * mob_threshold_multiplier
+// Get estimated buy and sell volume.
+[buyVolume, sellVolume] = f_getVolumeDelta(finalLowerTf)
 
-// 计算不同大小的绘图条件
-plot_buy_bubble_tiny = enable_mob and is_large_buy and buy_ratio < 1.5
-plot_buy_bubble_small = enable_mob and is_large_buy and buy_ratio >= 1.5 and buy_ratio < 2.0
-plot_buy_bubble_normal = enable_mob and is_large_buy and buy_ratio >= 2.0 and buy_ratio < 3.0
-plot_buy_bubble_large = enable_mob and is_large_buy and buy_ratio >= 3.0 and buy_ratio < 5.0
-plot_buy_bubble_huge = enable_mob and is_large_buy and buy_ratio >= 5.0
+// Calculate Net Delta.
+float netDelta = buyVolume - sellVolume
 
-plot_sell_bubble_tiny = enable_mob and is_large_sell and sell_ratio < 1.5
-plot_sell_bubble_small = enable_mob and is_large_sell and sell_ratio >= 1.5 and sell_ratio < 2.0
-plot_sell_bubble_normal = enable_mob and is_large_sell and sell_ratio >= 2.0 and sell_ratio < 3.0
-plot_sell_bubble_large = enable_mob and is_large_sell and sell_ratio >= 3.0 and sell_ratio < 5.0
-plot_sell_bubble_huge = enable_mob and is_large_sell and sell_ratio >= 5.0
+// Calculate the Z-Score for the net delta to identify statistical anomalies.
+float avgDelta = ta.sma(netDelta, i_statLookback)
+float stdevDelta = ta.stdev(netDelta, i_statLookback)
+float deltaZscore = stdevDelta > 0 ? (netDelta - avgDelta) / stdevDelta : 0
 
-// 计算颜色
-buy_color = enable_mob and is_large_buy ? color.new(#00ff00, buy_transp) : na
-sell_color = enable_mob and is_large_sell ? color.new(#ff0000, sell_transp) : na
+// Time Filters
+bool isAllowedTimeframe = not i_filterTimeframe or (timeframe.isintraday and timeframe.multiplier <= 15)
+bool isWithinDateRange = not i_filterDate or (timenow - time < i_daysToShow * 24 * 60 * 60 * 1000)
+
+// Trigger Condition
+bool showBubble = isAllowedTimeframe and isWithinDateRange and math.abs(deltaZscore) >= i_zscoreThreshold
+
+// ==== Abnormal Volume & Intrabar Profile Calculations ====
+
+// -- 1. 检测异常成交量
+float avp_vol_sma = ta.sma(volume, avp_ma_period)
+bool avp_is_abnormal_volume = volume > avp_vol_sma * avp_vol_multiplier
+
+// -- 2. 如果是异常成交量K线，则请求更小周期的数据
+if avp_is_abnormal_volume and barstate.isconfirmed
+    [tmp_high, tmp_low, tmp_close, tmp_open, tmp_volume] = request.security_lower_tf(syminfo.tickerid, avp_ltf_timeframe, [high, low, close, open, volume])
+    avp_ltf_high := tmp_high
+    avp_ltf_low := tmp_low
+    avp_ltf_close := tmp_close
+    avp_ltf_open := tmp_open
+    avp_ltf_volume := tmp_volume
+else
+    // 如果不是异常K线，则清空数组以节约内存
+    array.clear(avp_ltf_high)
+    array.clear(avp_ltf_low)
+    array.clear(avp_ltf_close)
+    array.clear(avp_ltf_open)
+    array.clear(avp_ltf_volume)
+
+// -- 3. 如果小周期数据存在，则进行剖析计算
+if array.size(avp_ltf_high) > 0
+    // -- 3a. 初始化计算变量
+    float avp_vpoc_price = na
+    float avp_cumulative_delta = na
+    float bar_range = high - low
+    float bin_height = bar_range > 0 ? bar_range / avp_profile_rows : 0
+
+    // -- 3b. 构建价格区间数组
+    array<float> price_bins = array.new_float(avp_profile_rows)
+    array<float> total_volume_per_bin = array.new_float(avp_profile_rows, 0)
+    array<float> buy_volume_per_bin = array.new_float(avp_profile_rows, 0)
+    array<float> sell_volume_per_bin = array.new_float(avp_profile_rows, 0)
+
+    for i = 0 to avp_profile_rows - 1
+        array.set(price_bins, i, low + bin_height * (i + 0.5))
+
+    // -- 3c. 遍历小周期数据，填充成交量到价格区间
+    for i = 0 to array.size(avp_ltf_volume) - 1
+        float ltf_c = array.get(avp_ltf_close, i)
+        float ltf_o = array.get(avp_ltf_open, i)
+        float ltf_vol = array.get(avp_ltf_volume, i)
+
+        if bin_height > 0
+            int bin_index = math.max(0, math.min(avp_profile_rows - 1, math.round((ltf_c - low) / bin_height - 0.5)))
+            array.set(total_volume_per_bin, bin_index, array.get(total_volume_per_bin, bin_index) + ltf_vol)
+            if ltf_c > ltf_o
+                array.set(buy_volume_per_bin, bin_index, array.get(buy_volume_per_bin, bin_index) + ltf_vol)
+            else if ltf_c < ltf_o
+                array.set(sell_volume_per_bin, bin_index, array.get(sell_volume_per_bin, bin_index) + ltf_vol)
+
+    // -- 3d. 计算 VPOC (成交量最高点) 和 Delta
+    float max_volume_in_profile = array.max(total_volume_per_bin)
+    if max_volume_in_profile > 0
+        int max_volume_index = array.indexof(total_volume_per_bin, max_volume_in_profile)
+        avp_vpoc_price := array.get(price_bins, max_volume_index)
+
+    avp_cumulative_delta := array.sum(buy_volume_per_bin) - array.sum(sell_volume_per_bin)
+
+    // -- 3e. 绘制VPOC水平线 (重要：这条线是画在下一根K线上的)
+    if not na(avp_vpoc_price)
+        color line_color = avp_cumulative_delta > 0 ? avp_pos_delta_color : avp_neg_delta_color
+        line.new(x1=time[1], y1=avp_vpoc_price, x2=time, y2=avp_vpoc_price, xloc=xloc.bar_time, extend=extend.none, color=line_color, width=avp_vpoc_line_width)
 
 [isNewDay, isNewWeek, isNewMonth, isNewQuarter, isNewYear, current_day, current_month, current_year, current_quarter, current_dayofweek] = detect_timeframe_changes()
 
@@ -1366,6 +1424,16 @@ if vp_enable
 // ==== PLOTTING ====
 // =============================================================================
 
+// ==== Abnormal Volume Bar Coloring ====
+color avp_abnormal_color = na
+if avp_is_abnormal_volume
+    if close > open
+        avp_abnormal_color := avp_abnormal_bull_color // 看涨则为蓝色
+    else if close < open
+        avp_abnormal_color := avp_abnormal_bear_color // 看跌则为红色
+
+barcolor(avp_abnormal_color)
+
 plot(show_7d ? rvwap_7d : na, title='7D RVWAP', color=color_7d, linewidth=1)
 plot(show_30d ? rvwap_30d : na, title='30D RVWAP', color=color_30d, linewidth=1)
 plot(show_90d ? rvwap_90d : na, title='90D RVWAP', color=color_90d, linewidth=1)
@@ -1639,57 +1707,56 @@ if barstate.islast
         currentMondayLinesActive := false
 
 // ==== Market Order Bubble Plotting ====
-// 绘制买单气泡（不同大小）
-plotshape(plot_buy_bubble_tiny, title="Buy Bubble Tiny", style=shape.circle, location=location.abovebar, color=buy_color, size=size.tiny)
-plotshape(plot_buy_bubble_small, title="Buy Bubble Small", style=shape.circle, location=location.abovebar, color=buy_color, size=size.small)
-plotshape(plot_buy_bubble_normal, title="Buy Bubble Normal", style=shape.circle, location=location.abovebar, color=buy_color, size=size.normal)
-plotshape(plot_buy_bubble_large, title="Buy Bubble Large", style=shape.circle, location=location.abovebar, color=buy_color, size=size.large)
-plotshape(plot_buy_bubble_huge, title="Buy Bubble Huge", style=shape.circle, location=location.abovebar, color=buy_color, size=size.huge)
 
-// 绘制卖单气泡（不同大小）
-plotshape(plot_sell_bubble_tiny, title="Sell Bubble Tiny", style=shape.circle, location=location.belowbar, color=sell_color, size=size.tiny)
-plotshape(plot_sell_bubble_small, title="Sell Bubble Small", style=shape.circle, location=location.belowbar, color=sell_color, size=size.small)
-plotshape(plot_sell_bubble_normal, title="Sell Bubble Normal", style=shape.circle, location=location.belowbar, color=sell_color, size=size.normal)
-plotshape(plot_sell_bubble_large, title="Sell Bubble Large", style=shape.circle, location=location.belowbar, color=sell_color, size=size.large)
-plotshape(plot_sell_bubble_huge, title="Sell Bubble Huge", style=shape.circle, location=location.belowbar, color=sell_color, size=size.huge)
-
-// 如果需要显示文本，使用label - 优化版
-if mob_show_text and enable_mob
-    // 标签管理：删除超出显示天数范围的旧标签
-    cutoff_time_labels = timenow - (mob_show_days * 24 * 60 * 60 * 1000)
-    if array.size(mob_labels) > 0
-        // 从最旧的标签开始检查 (数组末尾)
-        for i = array.size(mob_labels) - 1 to 0
-            label_to_check = array.get(mob_labels, i)
-            // 检查标签的时间戳是否过时
-            if label.get_x(label_to_check) < cutoff_time_labels
-                label.delete(array.remove(mob_labels, i))
-            else
-                // 假设标签是按时间顺序添加的，一旦遇到有效的，就可以停止检查
-                break
-
-    // 买单标签
-    if is_large_buy
-        buy_label_text = str.tostring(math.round(buy_ratio, 1)) + "x"
-        new_buy_label = label.new(x=time, y=high + (high - low) * 0.15,
-             text=buy_label_text, 
-             xloc=xloc.bar_time,
-             style=label.style_label_down,
-             color=color.new(color.green, buy_transp),
-             textcolor=color.white,
-             size=size.small)
-        array.unshift(mob_labels, new_buy_label) // 将新标签添加到数组的开头
+// --- 模块一：绘制Delta文字标签 (保持不变) ---
+if showBubble and i_showBubbleText
+    label textLabel = array.get(text_pool, text_pointer)
+    string deltaText = str.tostring(netDelta, format.volume)
     
-    // 卖单标签
-    if is_large_sell
-        sell_label_text = str.tostring(math.round(sell_ratio, 1)) + "x"
-        new_sell_label = label.new(x=time, y=low - (high - low) * 0.15,
-             text=sell_label_text, 
-             xloc=xloc.bar_time,
-             style=label.style_label_up,
-             color=color.new(color.red, sell_transp),
-             textcolor=color.white,
-             size=size.small)
-        array.unshift(mob_labels, new_sell_label) // 将新标签添加到数组的开头
+    float tr = ta.tr
+    float y_offset = tr 
+    float text_y_pos = deltaZscore > 0 ? high + y_offset : low - y_offset
+
+    label.set_xy(textLabel, bar_index, text_y_pos)
+    label.set_yloc(textLabel, yloc.price)
+    label.set_text(textLabel, deltaText)
+    label.set_textcolor(textLabel, color.new(color.white, 25))
+    label.set_size(textLabel, size.small)
+    label.set_style(textLabel, label.style_none)
+
+    text_pointer := (text_pointer + 1) % i_maxBubbles
+
+// --- 模块二：使用多个plotshape绘制不同尺寸的大气泡 (5个尺寸等级) ---
+
+// 1. 根据默认 f_getBubbleSize 函数的逻辑，计算出每个尺寸的布尔条件
+//    注意：'showBubble' 是包含了Z-Score阈值的主开关
+bool is_tiny_size   = showBubble and math.abs(deltaZscore) < 2.0
+bool is_small_size  = showBubble and math.abs(deltaZscore) >= 2.0 and math.abs(deltaZscore) < 2.5
+bool is_normal_size = showBubble and math.abs(deltaZscore) >= 2.5 and math.abs(deltaZscore) < 3.5
+bool is_large_size  = showBubble and math.abs(deltaZscore) >= 3.5 and math.abs(deltaZscore) < 5.0
+bool is_huge_size   = showBubble and math.abs(deltaZscore) >= 5.0
+
+// 2. 准备动态颜色 (保持不变)
+color plot_color = na
+if showBubble
+    bubble_transparency = f_getBubbleTransparency(deltaZscore)
+    base_color = deltaZscore > 0 ? i_buyBubbleColor : i_sellBubbleColor
+    plot_color := color.new(base_color, bubble_transparency)
+
+// 3. 为全部5个尺寸等级和2个方向，单独调用 plotshape
+
+// -- 绘制买入气泡 (5个尺寸) --
+plotshape(series=is_tiny_size and deltaZscore > 0,   title="Buy Bubble Tiny",   style=shape.circle, location=location.abovebar, color=plot_color, size=size.tiny)
+plotshape(series=is_small_size and deltaZscore > 0,  title="Buy Bubble Small",  style=shape.circle, location=location.abovebar, color=plot_color, size=size.small)
+plotshape(series=is_normal_size and deltaZscore > 0, title="Buy Bubble Normal", style=shape.circle, location=location.abovebar, color=plot_color, size=size.normal)
+plotshape(series=is_large_size and deltaZscore > 0,  title="Buy Bubble Large",  style=shape.circle, location=location.abovebar, color=plot_color, size=size.large)
+plotshape(series=is_huge_size and deltaZscore > 0,   title="Buy Bubble Huge",   style=shape.circle, location=location.abovebar, color=plot_color, size=size.huge)
+
+// -- 绘制卖出气泡 (5个尺寸) --
+plotshape(series=is_tiny_size and deltaZscore < 0,   title="Sell Bubble Tiny",   style=shape.circle, location=location.belowbar, color=plot_color, size=size.tiny)
+plotshape(series=is_small_size and deltaZscore < 0,  title="Sell Bubble Small",  style=shape.circle, location=location.belowbar, color=plot_color, size=size.small)
+plotshape(series=is_normal_size and deltaZscore < 0, title="Sell Bubble Normal", style=shape.circle, location=location.belowbar, color=plot_color, size=size.normal)
+plotshape(series=is_large_size and deltaZscore < 0,  title="Sell Bubble Large",  style=shape.circle, location=location.belowbar, color=plot_color, size=size.large)
+plotshape(series=is_huge_size and deltaZscore < 0,   title="Sell Bubble Huge",   style=shape.circle, location=location.belowbar, color=plot_color, size=size.huge)
 
 // END OF SCRIPT
