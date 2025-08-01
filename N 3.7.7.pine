@@ -131,6 +131,7 @@ vp_price_format = input.string('#.##', 'VPOC价格格式 (VPOC Price Format)', g
 
 // ==== Market Order Bubble Settings ====
 group_mob = '市价单气泡 (Market Order Bubbles)'
+enable_mob = input.bool(true, "启用市价单气泡 (Enable MOB)", group = group_mob)
 i_useCustomTf = input.bool(true, "Use Custom Lower Timeframe", group = group_mob, tooltip = "If unchecked, the script will automatically select a lower timeframe.")
 i_lowerTf = input.timeframe("1", "Lower Timeframe for Delta Calc", group = group_mob, tooltip = "The timeframe used to estimate volume delta.")
 i_statLookback = input.int(50, "Statistical Lookback Period", minval = 2, group = group_mob, tooltip = "Bars for calculating average and standard deviation.")
@@ -854,26 +855,24 @@ dailyOpen_ref = use_ref_tf_for_opens ? request.security(syminfo.tickerid, "D", f
 // =============================================================================
 
 // ==== Market Order Bubble Calculations ====
-// Determine the lower timeframe to use.
-string finalLowerTf = i_useCustomTf ? i_lowerTf : f_autoLowerTf()
+// 【修改】为所有变量声明一个默认值
+float netDelta = 0.0
+float deltaZscore = 0.0
+bool showBubble = false
 
-// Get estimated buy and sell volume.
-[buyVolume, sellVolume] = f_getVolumeDelta(finalLowerTf)
+// 【修改】只有在开关打开时，才执行所有消耗资源的计算
+if enable_mob
+    string finalLowerTf = i_useCustomTf ? i_lowerTf : f_autoLowerTf()
+    [buyVolume, sellVolume] = f_getVolumeDelta(finalLowerTf)
+    netDelta := buyVolume - sellVolume
+    float avgDelta = ta.sma(netDelta, i_statLookback)
+    float stdevDelta = ta.stdev(netDelta, i_statLookback)
+    deltaZscore := stdevDelta > 0 ? (netDelta - avgDelta) / stdevDelta : 0
 
-// Calculate Net Delta.
-float netDelta = buyVolume - sellVolume
+    bool isAllowedTimeframe = not i_filterTimeframe or (timeframe.isintraday and timeframe.multiplier <= 15)
+    bool isWithinDateRange = not i_filterDate or (timenow - time < i_daysToShow * 24 * 60 * 60 * 1000)
 
-// Calculate the Z-Score for the net delta to identify statistical anomalies.
-float avgDelta = ta.sma(netDelta, i_statLookback)
-float stdevDelta = ta.stdev(netDelta, i_statLookback)
-float deltaZscore = stdevDelta > 0 ? (netDelta - avgDelta) / stdevDelta : 0
-
-// Time Filters
-bool isAllowedTimeframe = not i_filterTimeframe or (timeframe.isintraday and timeframe.multiplier <= 15)
-bool isWithinDateRange = not i_filterDate or (timenow - time < i_daysToShow * 24 * 60 * 60 * 1000)
-
-// Trigger Condition
-bool showBubble = isAllowedTimeframe and isWithinDateRange and math.abs(deltaZscore) >= i_zscoreThreshold
+    showBubble := isAllowedTimeframe and isWithinDateRange and math.abs(deltaZscore) >= i_zscoreThreshold
 
 // ==== Abnormal Volume & Intrabar Profile Calculations ====
 
@@ -1191,7 +1190,7 @@ if vp_enable
             // 优化扩展算法
             if total_volume > 0
                 int poc_index = array.indexof(vp_volume_values, max_volume_for_poc)
-                float target_volume = total_volume * 0.7
+                float target_volume = total_volume * 0.68
                 float current_volume = array.get(vp_volume_values, poc_index)
                 
                 vp_value_area_low_idx := poc_index
@@ -1745,18 +1744,18 @@ if showBubble
 
 // 3. 为全部5个尺寸等级和2个方向，单独调用 plotshape
 
-// -- 绘制买入气泡 (5个尺寸) --
-plotshape(series=is_tiny_size and deltaZscore > 0,   title="Buy Bubble Tiny",   style=shape.circle, location=location.abovebar, color=plot_color, size=size.tiny)
-plotshape(series=is_small_size and deltaZscore > 0,  title="Buy Bubble Small",  style=shape.circle, location=location.abovebar, color=plot_color, size=size.small)
-plotshape(series=is_normal_size and deltaZscore > 0, title="Buy Bubble Normal", style=shape.circle, location=location.abovebar, color=plot_color, size=size.normal)
-plotshape(series=is_large_size and deltaZscore > 0,  title="Buy Bubble Large",  style=shape.circle, location=location.abovebar, color=plot_color, size=size.large)
-plotshape(series=is_huge_size and deltaZscore > 0,   title="Buy Bubble Huge",   style=shape.circle, location=location.abovebar, color=plot_color, size=size.huge)
+// -- 绘制买入气泡 (5个尺寸 - 缩小版) --
+plotshape(series=is_tiny_size and deltaZscore > 0,   title="Buy Bubble Tiny",   style=shape.circle, location=location.abovebar, color=plot_color, size=size.tiny)   // tiny -> tiny (最小)
+plotshape(series=is_small_size and deltaZscore > 0,  title="Buy Bubble Small",  style=shape.circle, location=location.abovebar, color=plot_color, size=size.tiny)   // small -> tiny
+plotshape(series=is_normal_size and deltaZscore > 0, title="Buy Bubble Normal", style=shape.circle, location=location.abovebar, color=plot_color, size=size.small)  // normal -> small
+plotshape(series=is_large_size and deltaZscore > 0,  title="Buy Bubble Large",  style=shape.circle, location=location.abovebar, color=plot_color, size=size.normal) // large -> normal
+plotshape(series=is_huge_size and deltaZscore > 0,   title="Buy Bubble Huge",   style=shape.circle, location=location.abovebar, color=plot_color, size=size.large)  // huge -> large
 
-// -- 绘制卖出气泡 (5个尺寸) --
-plotshape(series=is_tiny_size and deltaZscore < 0,   title="Sell Bubble Tiny",   style=shape.circle, location=location.belowbar, color=plot_color, size=size.tiny)
-plotshape(series=is_small_size and deltaZscore < 0,  title="Sell Bubble Small",  style=shape.circle, location=location.belowbar, color=plot_color, size=size.small)
-plotshape(series=is_normal_size and deltaZscore < 0, title="Sell Bubble Normal", style=shape.circle, location=location.belowbar, color=plot_color, size=size.normal)
-plotshape(series=is_large_size and deltaZscore < 0,  title="Sell Bubble Large",  style=shape.circle, location=location.belowbar, color=plot_color, size=size.large)
-plotshape(series=is_huge_size and deltaZscore < 0,   title="Sell Bubble Huge",   style=shape.circle, location=location.belowbar, color=plot_color, size=size.huge)
+// -- 绘制卖出气泡 (5个尺寸 - 缩小版) --
+plotshape(series=is_tiny_size and deltaZscore < 0,   title="Sell Bubble Tiny",   style=shape.circle, location=location.belowbar, color=plot_color, size=size.tiny)   // tiny -> tiny (最小)
+plotshape(series=is_small_size and deltaZscore < 0,  title="Sell Bubble Small",  style=shape.circle, location=location.belowbar, color=plot_color, size=size.tiny)   // small -> tiny
+plotshape(series=is_normal_size and deltaZscore < 0, title="Sell Bubble Normal", style=shape.circle, location=location.belowbar, color=plot_color, size=size.small)  // normal -> small
+plotshape(series=is_large_size and deltaZscore < 0,  title="Sell Bubble Large",  style=shape.circle, location=location.belowbar, color=plot_color, size=size.normal) // large -> normal
+plotshape(series=is_huge_size and deltaZscore < 0,   title="Sell Bubble Huge",   style=shape.circle, location=location.belowbar, color=plot_color, size=size.large)  // huge -> large
 
 // END OF SCRIPT
