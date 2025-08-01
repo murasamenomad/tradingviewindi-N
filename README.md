@@ -1,2 +1,3 @@
-<img width="2217" height="979" alt="image" src="https://github.com/user-attachments/assets/16513ebc-7712-4f4d-a330-d7575141cf86" />
+<img width="2204" height="975" alt="image" src="https://github.com/user-attachments/assets/24a811da-b975-4a41-95bd-9a77b9ce1dda" />
+
 all in one type shi, as you can see, the color scheme follows my own setting, so change it to adapt yours.
