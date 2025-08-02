@@ -157,6 +157,8 @@ avp_abnormal_bear_color = input.color(color.new(color.red, 75), "异常看跌K�
 avp_pos_delta_color = input.color(color.new(color.green, 0), "正Delta颜色 (Positive Delta Color)", group=group_avp)
 avp_neg_delta_color = input.color(color.new(color.red, 0), "负Delta颜色 (Negative Delta Color)", group=group_avp)
 avp_vpoc_line_width = input.int(2, "VPOC线宽 (VPOC Line Width)", minval=1, group=group_avp)
+// 新增: 为AVP线条添加数量上限控制，以防止绘图对象泄漏
+avp_max_lines = input.int(50, "最大AVP线条数 (Max AVP Lines)", minval=1, maxval=200, group=group_avp, tooltip="图表上保留的异常成交量VPOC线条的最大数量。这有助于防止绘图对象过多导致的问题。")
 
 // =============================================================================
 // ==== GLOBAL VARIABLE DECLARATIONS ====
@@ -174,6 +176,8 @@ var array<float> avp_ltf_low = array.new_float()
 var array<float> avp_ltf_close = array.new_float()
 var array<float> avp_ltf_open = array.new_float()
 var array<float> avp_ltf_volume = array.new_float()
+// 新增: 为AVP线条创建专属管理数组
+var array<line> avp_lines = array.new_line()
 
 // Market Order Bubble Global Variables
 var array<label> text_pool = array.new_label()   // 文字的对象池
@@ -935,10 +939,20 @@ if array.size(avp_ltf_high) > 0
 
     avp_cumulative_delta := array.sum(buy_volume_per_bin) - array.sum(sell_volume_per_bin)
 
-    // -- 3e. 绘制VPOC水平线 (重要：这条线是画在下一根K线上的)
+    // -- 3e. 绘制VPOC水平线(使用受控的FIFO队列进行管理)
     if not na(avp_vpoc_price)
+        // 修复: 在创建新线条前，检查是否已达到数量上限
+        if array.size(avp_lines) >= avp_max_lines
+            // 如果达到上限,则移除并删除最旧的线条(队列中的第一个)
+            line oldest_line = array.shift(avp_lines)
+            line.delete(oldest_line)
+
+        // 创建新的AVP线条，并捕获其ID
         color line_color = avp_cumulative_delta > 0 ? avp_pos_delta_color : avp_neg_delta_color
-        line.new(x1=time[1], y1=avp_vpoc_price, x2=time, y2=avp_vpoc_price, xloc=xloc.bar_time, extend=extend.none, color=line_color, width=avp_vpoc_line_width)
+        line new_avp_line = line.new(x1=bar_index - 1, y1=avp_vpoc_price, x2=bar_index, y2=avp_vpoc_price, xloc=xloc.bar_index, extend=extend.none, color=line_color, width=avp_vpoc_line_width)
+
+        // 修复: 将新创建的线条ID存入管理数组中，以便后续追踪和删除
+        array.push(avp_lines, new_avp_line)
 
 [isNewDay, isNewWeek, isNewMonth, isNewQuarter, isNewYear, current_day, current_month, current_year, current_quarter, current_dayofweek] = detect_timeframe_changes()
 
@@ -1510,7 +1524,7 @@ upperBand_5 = plot(upperBand5_plot_value, title='U Band 5', color=isNewPeriod5 ?
 
 fill(upperBand_5, lowerBand_5, color=isNewPeriod5 ? na : VWAP5_Bgc, title='Fill 5')
 
-if barstate.islast 
+if barstate.islast
     bool force_clean_labels = true 
     bool labels_need_update_flag = false
     
