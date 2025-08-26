@@ -424,15 +424,15 @@ f_getBubbleTransparency(zscore) =>
     else
         absZscore = math.abs(zscore)
         if absZscore < 2.0
-            90 // Very transparent
+            80 // Very transparent
         else if absZscore < 2.5
-            80
+            40
         else if absZscore < 3.5
-            70
+            80
         else if absZscore < 5.0
-            60
+            40
         else
-            50 // Very opaque (significant event)
+            40 // Very opaque (significant event)
 
 detect_timeframe_changes() => // Function to detect timeframe changes
     current_day = dayofmonth(time)
@@ -1761,15 +1761,15 @@ if showBubble
 // -- 绘制买入气泡 (5个尺寸 - 缩小版) --
 plotshape(series=is_tiny_size and deltaZscore > 0,   title="Buy Bubble Tiny",   style=shape.circle, location=location.abovebar, color=plot_color, size=size.tiny)   // tiny -> tiny (最小)
 plotshape(series=is_small_size and deltaZscore > 0,  title="Buy Bubble Small",  style=shape.circle, location=location.abovebar, color=plot_color, size=size.tiny)   // small -> tiny
-plotshape(series=is_normal_size and deltaZscore > 0, title="Buy Bubble Normal", style=shape.circle, location=location.abovebar, color=plot_color, size=size.small)  // normal -> small
-plotshape(series=is_large_size and deltaZscore > 0,  title="Buy Bubble Large",  style=shape.circle, location=location.abovebar, color=plot_color, size=size.normal) // large -> normal
-plotshape(series=is_huge_size and deltaZscore > 0,   title="Buy Bubble Huge",   style=shape.circle, location=location.abovebar, color=plot_color, size=size.large)  // huge -> large
+plotshape(series=is_normal_size and deltaZscore > 0, title="Buy Bubble Normal", style=shape.circle, location=location.abovebar, color=plot_color, size=size.small)  // normal -> tiny
+plotshape(series=is_large_size and deltaZscore > 0,  title="Buy Bubble Large",  style=shape.circle, location=location.abovebar, color=plot_color, size=size.small) // large -> small
+plotshape(series=is_huge_size and deltaZscore > 0,   title="Buy Bubble Huge",   style=shape.circle, location=location.abovebar, color=plot_color, size=size.normal)  // huge -> normal
 
 // -- 绘制卖出气泡 (5个尺寸 - 缩小版) --
 plotshape(series=is_tiny_size and deltaZscore < 0,   title="Sell Bubble Tiny",   style=shape.circle, location=location.belowbar, color=plot_color, size=size.tiny)   // tiny -> tiny (最小)
 plotshape(series=is_small_size and deltaZscore < 0,  title="Sell Bubble Small",  style=shape.circle, location=location.belowbar, color=plot_color, size=size.tiny)   // small -> tiny
-plotshape(series=is_normal_size and deltaZscore < 0, title="Sell Bubble Normal", style=shape.circle, location=location.belowbar, color=plot_color, size=size.small)  // normal -> small
-plotshape(series=is_large_size and deltaZscore < 0,  title="Sell Bubble Large",  style=shape.circle, location=location.belowbar, color=plot_color, size=size.normal) // large -> normal
-plotshape(series=is_huge_size and deltaZscore < 0,   title="Sell Bubble Huge",   style=shape.circle, location=location.belowbar, color=plot_color, size=size.large)  // huge -> large
+plotshape(series=is_normal_size and deltaZscore < 0, title="Sell Bubble Normal", style=shape.circle, location=location.belowbar, color=plot_color, size=size.small)  // normal -> tiny
+plotshape(series=is_large_size and deltaZscore < 0,  title="Sell Bubble Large",  style=shape.circle, location=location.belowbar, color=plot_color, size=size.small) // large -> small
+plotshape(series=is_huge_size and deltaZscore < 0,   title="Sell Bubble Huge",   style=shape.circle, location=location.belowbar, color=plot_color, size=size.normal)  // huge -> normal
 
 // END OF SCRIPT
