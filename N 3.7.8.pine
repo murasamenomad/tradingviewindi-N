@@ -21,15 +21,22 @@ show_7d = input.bool(true, '显示7天 (Show 7D)', group=group_rvwap)
 show_30d = input.bool(true, '显示30天 (Show 30D)', group=group_rvwap)
 show_90d = input.bool(true, '显示90天 (Show 90D)', group=group_rvwap)
 show_365d = input.bool(true, '显示365天 (Show 365D)', group=group_rvwap)
-color_7d = input.color(color.new(#6BEFF9, 40), '7D颜色 (Color)', group=group_rvwap, inline='7d')
-color_30d = input.color(color.new(#00BED6, 40), '30D颜色 (Color)', group=group_rvwap, inline='30d')
-color_90d = input.color(color.new(#006C7A, 40), '90D颜色 (Color)', group=group_rvwap, inline='90d')
-color_365d = input.color(color.new(#004851, 40), '365D颜色 (Color)', group=group_rvwap, inline='365d')
+color_7d = input.color(color.new(#6BEFF9, 20), '7D颜色 (Color)', group=group_rvwap, inline='7d')
+color_30d = input.color(color.new(#00BED6, 20), '30D颜色 (Color)', group=group_rvwap, inline='30d')
+color_90d = input.color(color.new(#006C7A, 0), '90D颜色 (Color)', group=group_rvwap, inline='90d')
+color_365d = input.color(color.new(#004851, 0), '365D颜色 (Color)', group=group_rvwap, inline='365d')
 rvwap_ref_tf = input.string('60', '参考时间框架 (Reference TF)', options=['5', '15', '60', '240', 'D'], group=group_rvwap, tooltip='用于计算滚动VWAP的参考时间框架')
 rvwap_smoothing = input.int(1, '平滑周期 (Smoothing)', minval=1, maxval=100, group=group_rvwap, tooltip='滚动VWAP的平滑周期数')
+show_rvwap_label_7d = input.bool(true, '显示7D标签 (Show 7D Label)', group=group_rvwap, inline='rvwap_7d_label')
+show_rvwap_label_30d = input.bool(true, '显示30D标签 (Show 30D Label)', group=group_rvwap, inline='rvwap_30d_label')
+show_rvwap_label_90d = input.bool(true, '显示90D标签 (Show 90D Label)', group=group_rvwap, inline='rvwap_90d_label')
+show_rvwap_label_365d = input.bool(true, '显示365D标签 (Show 365D Label)', group=group_rvwap, inline='rvwap_365d_label')
+rvwap_label_offset = input.int(60, 'RVWAP 标签偏移 (Label Offset)', minval=1, group=group_rvwap, tooltip='RVWAP标签的水平偏移量，单位为K线数量。')
+rvwap_label_format = input.string('#.####', 'RVWAP 价格格式 (Price Format)', group=group_rvwap)
 
 // ==== Anchored VWAP Settings ====
 VWAP_Ctl_Group = '锚定VWAP (Anchored VWAP)'
+master_AVWAP = input.bool(true, '🔴 总开关 - Anchored VWAP', group=VWAP_Ctl_Group, inline='master')
 vwapSource = hlc3
 
 // --- VWAP #1 (Defaults to Quarterly) ---
@@ -134,8 +141,8 @@ group_mob = '市价单气泡 (Market Order Bubbles)'
 enable_mob = input.bool(true, "启用市价单气泡 (Enable MOB)", group = group_mob)
 i_useCustomTf = input.bool(true, "Use Custom Lower Timeframe", group = group_mob, tooltip = "If unchecked, the script will automatically select a lower timeframe.")
 i_lowerTf = input.timeframe("1", "Lower Timeframe for Delta Calc", group = group_mob, tooltip = "The timeframe used to estimate volume delta.")
-i_statLookback = input.int(50, "Statistical Lookback Period", minval = 2, group = group_mob, tooltip = "Bars for calculating average and standard deviation.")
-i_zscoreThreshold = input.float(2.0, "Z-Score Threshold", minval = 0.5, step = 0.1, group = group_mob, tooltip = "Z-Score threshold for bubble detection.")
+i_statLookback = input.int(24, "Statistical Lookback Period", minval = 2, group = group_mob, tooltip = "Bars for calculating average and standard deviation.")
+i_zscoreThreshold = input.float(2.7, "Z-Score Threshold", minval = 0.5, step = 0.1, group = group_mob, tooltip = "Z-Score threshold for bubble detection.")
 i_maxBubbles = input.int(100, "Max Bubbles to Display", minval = 1, maxval = 500, group = group_mob, tooltip = "Maximum bubbles to keep on chart.")
 i_buyBubbleColor = input.color(color.green, "Buy Bubble Base Color", group = group_mob, tooltip = "Base color for buy bubbles.")
 i_sellBubbleColor = input.color(color.red, "Sell Bubble Base Color", group = group_mob, tooltip = "Base color for sell bubbles.")
@@ -150,10 +157,10 @@ i_daysToShow = input.int(3, "Days to Show", minval = 1, group = group_mob)
 group_avp = "异常成交量与剖析 (Abnormal Vol & Profile)"
 avp_ma_period = input.int(20, "成交量MA周期 (Volume MA Period)", minval=1, group=group_avp)
 avp_vol_multiplier = input.float(2.0, "成交量乘数 (Volume Multiplier)", minval=0.1, step=0.1, group=group_avp)
-avp_ltf_timeframe = input.timeframe("5", "剖析用小周期 (Lower Timeframe for Profile)", group=group_avp)
-avp_profile_rows = input.int(25, "剖析行数 (Profile Rows)", minval=5, maxval=100, group=group_avp)
-avp_abnormal_bull_color = input.color(color.new(color.blue, 75), "异常看涨K线颜色 (Abnormal Bullish Bar Color)", group=group_avp)
-avp_abnormal_bear_color = input.color(color.new(color.red, 75), "异常看跌K线颜色 (Abnormal Bearish Bar Color)", group=group_avp)
+avp_ltf_timeframe = input.timeframe("1", "剖析用小周期 (Lower Timeframe for Profile)", group=group_avp)
+avp_profile_rows = input.int(50, "剖析行数 (Profile Rows)", minval=5, maxval=100, group=group_avp)
+avp_abnormal_bull_color = input.color(color.new(color.blue, 0), "异常看涨K线颜色 (Abnormal Bullish Bar Color)", group=group_avp)
+avp_abnormal_bear_color = input.color(color.new(color.red, 0), "异常看跌K线颜色 (Abnormal Bearish Bar Color)", group=group_avp)
 avp_pos_delta_color = input.color(color.new(color.green, 0), "正Delta颜色 (Positive Delta Color)", group=group_avp)
 avp_neg_delta_color = input.color(color.new(color.red, 0), "负Delta颜色 (Negative Delta Color)", group=group_avp)
 avp_vpoc_line_width = input.int(2, "VPOC线宽 (VPOC Line Width)", minval=1, group=group_avp)
@@ -281,6 +288,8 @@ var label[] key_open_labels = array.new_label()
 var label[] pvwap_labels = array.new_label()
 var line[] key_open_lines = array.new_line()
 var line[] pvwap_lines = array.new_line()
+var label[] rvwap_labels = array.new_label()
+var line[] rvwap_lines = array.new_line()
 
 var float cache_yearlyOpen = na
 var float cache_monthlyOpen = na
@@ -291,6 +300,10 @@ var float cache_lastWeeklyPOC = na
 var float cache_lastMonthlyPOC = na
 var float cache_lastQuarterlyPOC = na
 var float cache_lastYearlyPOC = na
+var float cache_rvwap_7d = na
+var float cache_rvwap_30d = na
+var float cache_rvwap_90d = na
+var float cache_rvwap_365d = na
 
 var int thisWeekStart = na
 var float lastWeeklyLower = na
@@ -817,6 +830,33 @@ plot_key_open_level(levelValue, levelName, levelColor, offset_val, format_str) =
         label_obj.set_text_font_family(FONT_MONO)
         array.push(key_open_labels, label_obj)
 
+// 用于绘制滚动VWAP水平的函数，包含标签和指示线
+plot_rvwap_level(levelValue, levelName, levelColor, offset_val, format_str) =>
+    if not na(levelValue)
+        // 计算指标线和标签的时间坐标
+        int offset_time = time + (offset_val * timeframe.in_seconds(timeframe.period) * 1000)
+        int line_start_time = offset_time - (KEYLEVEL_LINE_LENGTH * timeframe.in_seconds(timeframe.period) * 1000)
+
+        // --- 线条对象的创建与配置 ---
+        line line_obj = get_line_from_pool()
+        line_obj.set_xy1(line_start_time, levelValue)
+        line_obj.set_xy2(offset_time, levelValue)
+        line_obj.set_color(levelColor)
+        line_obj.set_width(1)
+        line_obj.set_style(PVWAP_LINE_STYLE) // 复用现有样式以保持视觉一致性
+        array.push(rvwap_lines, line_obj) // 关键步骤：将对象添加到追踪数组
+
+        // --- 标签对象的创建与配置 ---
+        label label_obj = get_label_from_pool()
+        label_obj.set_xy(offset_time, levelValue)
+        label_obj.set_text(levelName)
+        label_obj.set_tooltip(str.tostring(levelValue, format_str))
+        label_obj.set_color(label_color_setting) // 复用现有背景色以保持视觉一致性
+        label_obj.set_textcolor(color.new(levelColor, 45)) // 基于线条颜色动态生成文本颜色
+        label_obj.set_style(DEFAULT_LABEL_STYLE)
+        label_obj.set_text_font_family(FONT_MONO)
+        array.push(rvwap_labels, label_obj) // 关键步骤：将对象添加到追踪数组
+
 f_get_yearly_open() => // Function to get yearly open price
     var float yo = na
     if year(time) != year(time[1]) or na(yo)
@@ -980,10 +1020,6 @@ rvwap_30d = ta.sma(rvwap_30d_raw, rvwap_smoothing)
 rvwap_90d = ta.sma(rvwap_90d_raw, rvwap_smoothing)
 rvwap_365d = ta.sma(rvwap_365d_raw, rvwap_smoothing)
 
-[vwap1, band1_upper, band1_lower] = f_calculate_current_vwap(vwapSource, VWAP1_Ctl, f_is_new_period(Anchor1), Anchor1)
-[vwap2, band2_upper, band2_lower] = f_calculate_current_vwap(vwapSource, VWAP2_Ctl, f_is_new_period(Anchor2), Anchor2)
-[vwap3, band3_upper, band3_lower] = f_calculate_current_vwap(vwapSource, VWAP3_Ctl, f_is_new_period(Anchor3), Anchor3)
-
 string curr_tf_period = timeframe.period
 int current_tf_seconds_val = timeframe.in_seconds(timeframe.period) 
 
@@ -997,6 +1033,9 @@ bool is_12h_or_higher_tf = current_tf_seconds_val >= SECONDS_12H_VAL
 bool is_weekly_or_higher_tf = current_tf_seconds_val >= SECONDS_1W_VAL
 bool is_monthly_or_higher_tf = curr_tf_period == "M" or curr_tf_period == "3M" or curr_tf_period == "6M" or curr_tf_period == "12M"
 
+[vwap1, band1_upper, band1_lower] = f_calculate_current_vwap(vwapSource, VWAP1_Ctl, f_is_new_period(Anchor1), Anchor1)
+[vwap2, band2_upper, band2_lower] = f_calculate_current_vwap(vwapSource, VWAP2_Ctl, f_is_new_period(Anchor2), Anchor2)
+[vwap3, band3_upper, band3_lower] = f_calculate_current_vwap(vwapSource, VWAP3_Ctl, f_is_new_period(Anchor3), Anchor3)
 [vwap4, band4_upper, band4_lower] = f_calculate_current_vwap(vwapSource, VWAP4_Ctl, f_is_new_period(Anchor4), Anchor4)
 [vwap5, band5_upper, band5_lower] = f_calculate_current_vwap(vwapSource, VWAP5_Ctl, f_is_new_period(Anchor5), Anchor5)
 
@@ -1460,9 +1499,9 @@ var bool isNewPeriod4 = f_is_new_period(Anchor4)
 var bool isNewPeriod5 = f_is_new_period(Anchor5)
 
 // VWAP 1 (Quarterly) - 修正版
-vwap1_plot_value = VWAP1_Ctl and (Anchor1 != 'Quarter' or not is_monthly_or_higher_tf) ? vwap1 : na
-lowerBand1_plot_value = VWAP1_Ctl and (Anchor1 != 'Quarter' or not is_monthly_or_higher_tf) ? band1_lower : na
-upperBand1_plot_value = VWAP1_Ctl and (Anchor1 != 'Quarter' or not is_monthly_or_higher_tf) ? band1_upper : na
+vwap1_plot_value = master_AVWAP and VWAP1_Ctl and (Anchor1 != 'Quarter' or not is_monthly_or_higher_tf) ? vwap1 : na
+lowerBand1_plot_value = master_AVWAP and VWAP1_Ctl and (Anchor1 != 'Quarter' or not is_monthly_or_higher_tf) ? band1_lower : na
+upperBand1_plot_value = master_AVWAP and VWAP1_Ctl and (Anchor1 != 'Quarter' or not is_monthly_or_higher_tf) ? band1_upper : na
 
 isNewPeriod1 := f_is_new_period(Anchor1) // 更新状态
 
@@ -1473,9 +1512,9 @@ upperBand_1 = plot(upperBand1_plot_value, title='U Band 1', color=isNewPeriod1 ?
 fill(upperBand_1, lowerBand_1, color=isNewPeriod1 ? na : VWAP1_Bgc, title='Fill 1')
 
 // VWAP 2 (Monthly) - 修正版
-vwap2_plot_value = VWAP2_Ctl and (Anchor2 != 'Month' or not is_weekly_or_higher_tf) ? vwap2 : na
-lowerBand2_plot_value = VWAP2_Ctl and (Anchor2 != 'Month' or not is_weekly_or_higher_tf) ? band2_lower : na
-upperBand2_plot_value = VWAP2_Ctl and (Anchor2 != 'Month' or not is_weekly_or_higher_tf) ? band2_upper : na
+vwap2_plot_value = master_AVWAP and VWAP2_Ctl and (Anchor2 != 'Month' or not is_weekly_or_higher_tf) ? vwap2 : na
+lowerBand2_plot_value = master_AVWAP and VWAP2_Ctl and (Anchor2 != 'Month' or not is_weekly_or_higher_tf) ? band2_lower : na
+upperBand2_plot_value = master_AVWAP and VWAP2_Ctl and (Anchor2 != 'Month' or not is_weekly_or_higher_tf) ? band2_upper : na
 
 isNewPeriod2 := f_is_new_period(Anchor2) // 更新状态
 
@@ -1486,9 +1525,9 @@ upperBand_2 = plot(upperBand2_plot_value, title='U Band 2', color=isNewPeriod2 ?
 fill(upperBand_2, lowerBand_2, color=isNewPeriod2 ? na : VWAP2_Bgc, title='Fill 2')
 
 // VWAP 3 (Weekly) - 修正版
-vwap3_plot_value = VWAP3_Ctl and (Anchor3 != 'Week' or not is_12h_or_higher_tf) ? vwap3 : na
-lowerBand3_plot_value = VWAP3_Ctl and (Anchor3 != 'Week' or not is_12h_or_higher_tf) ? band3_lower : na
-upperBand3_plot_value = VWAP3_Ctl and (Anchor3 != 'Week' or not is_12h_or_higher_tf) ? band3_upper : na
+vwap3_plot_value = master_AVWAP and VWAP3_Ctl and (Anchor3 != 'Week' or not is_12h_or_higher_tf) ? vwap3 : na
+lowerBand3_plot_value = master_AVWAP and VWAP3_Ctl and (Anchor3 != 'Week' or not is_12h_or_higher_tf) ? band3_lower : na
+upperBand3_plot_value = master_AVWAP and VWAP3_Ctl and (Anchor3 != 'Week' or not is_12h_or_higher_tf) ? band3_upper : na
 
 isNewPeriod3 := f_is_new_period(Anchor3) // 更新状态
 
@@ -1499,9 +1538,9 @@ upperBand_3 = plot(upperBand3_plot_value, title='U Band 3', color=isNewPeriod3 ?
 fill(upperBand_3, lowerBand_3, color=isNewPeriod3 ? na : VWAP3_Bgc, title='Fill 3')
 
 // VWAP 4 (Daily) - 修正版
-vwap4_plot_value = VWAP4_Ctl and not is_4h_or_higher_tf ? vwap4 : na
-lowerBand4_plot_value = VWAP4_Ctl and not is_4h_or_higher_tf ? band4_lower : na
-upperBand4_plot_value = VWAP4_Ctl and not is_4h_or_higher_tf ? band4_upper : na
+vwap4_plot_value = master_AVWAP and VWAP4_Ctl and not is_4h_or_higher_tf ? vwap4 : na
+lowerBand4_plot_value = master_AVWAP and VWAP4_Ctl and not is_4h_or_higher_tf ? band4_lower : na
+upperBand4_plot_value = master_AVWAP and VWAP4_Ctl and not is_4h_or_higher_tf ? band4_upper : na
 
 isNewPeriod4 := f_is_new_period(Anchor4) // 更新状态
 
@@ -1512,9 +1551,9 @@ upperBand_4 = plot(upperBand4_plot_value, title='U Band 4', color=isNewPeriod4 ?
 fill(upperBand_4, lowerBand_4, color=isNewPeriod4 ? na : VWAP4_Bgc, title='Fill 4')
 
 // VWAP 5 (Yearly) - 修正版
-vwap5_plot_value = VWAP5_Ctl ? vwap5 : na
-lowerBand5_plot_value = VWAP5_Ctl ? band5_lower : na
-upperBand5_plot_value = VWAP5_Ctl ? band5_upper : na
+vwap5_plot_value = master_AVWAP and VWAP5_Ctl ? vwap5 : na
+lowerBand5_plot_value = master_AVWAP and VWAP5_Ctl ? band5_lower : na
+upperBand5_plot_value = master_AVWAP and VWAP5_Ctl ? band5_upper : na
 
 isNewPeriod5 := f_is_new_period(Anchor5) // 更新状态
 
@@ -1525,10 +1564,14 @@ upperBand_5 = plot(upperBand5_plot_value, title='U Band 5', color=isNewPeriod5 ?
 fill(upperBand_5, lowerBand_5, color=isNewPeriod5 ? na : VWAP5_Bgc, title='Fill 5')
 
 if barstate.islast
-    bool force_clean_labels = true 
+    bool force_clean_labels = false 
     bool labels_need_update_flag = false
     
-    if na(cache_yearlyOpen) or na(cache_monthlyOpen) or na(cache_weeklyOpen) or na(cache_quarterlyOpen) or na(cache_dailyOpen) or na(cache_lastWeeklyPOC) or na(cache_lastMonthlyPOC) or na(cache_lastQuarterlyPOC) or na(cache_lastYearlyPOC) or yearlyOpen != cache_yearlyOpen or monthlyOpen != cache_monthlyOpen or weeklyOpen != cache_weeklyOpen or quarterlyOpen != cache_quarterlyOpen or dailyOpen != cache_dailyOpen or lastWeeklyPOC != cache_lastWeeklyPOC or lastMonthlyPOC != cache_lastMonthlyPOC or lastQuarterlyPOC != cache_lastQuarterlyPOC or lastYearlyPOC != cache_lastYearlyPOC
+    if na(cache_yearlyOpen) or na(cache_monthlyOpen) or na(cache_weeklyOpen) or na(cache_quarterlyOpen) or na(cache_dailyOpen) or na(cache_lastWeeklyPOC) or na(cache_lastMonthlyPOC) or na(cache_lastQuarterlyPOC) or na(cache_lastYearlyPOC) or yearlyOpen!= cache_yearlyOpen or monthlyOpen!= cache_monthlyOpen or weeklyOpen!= cache_weeklyOpen or quarterlyOpen!= cache_quarterlyOpen or dailyOpen!= cache_dailyOpen or lastWeeklyPOC!= cache_lastWeeklyPOC or lastMonthlyPOC!= cache_lastMonthlyPOC or lastQuarterlyPOC!= cache_lastQuarterlyPOC or lastYearlyPOC!= cache_lastYearlyPOC or 
+       (show_rvwap_label_7d and rvwap_7d!= cache_rvwap_7d) or
+       (show_rvwap_label_30d and rvwap_30d!= cache_rvwap_30d) or
+       (show_rvwap_label_90d and rvwap_90d!= cache_rvwap_90d) or
+       (show_rvwap_label_365d and rvwap_365d!= cache_rvwap_365d)
         labels_need_update_flag := true
     
     if labels_need_update_flag or force_clean_labels
@@ -1553,6 +1596,16 @@ if barstate.islast
                 line line_to_return = array.get(pvwap_lines, i)
                 return_line_to_pool(line_to_return)
             array.clear(pvwap_lines) 
+        if array.size(rvwap_labels) > 0
+            for i = 0 to array.size(rvwap_labels) - 1
+                label lbl_to_return = array.get(rvwap_labels, i)
+                return_label_to_pool(lbl_to_return)
+            array.clear(rvwap_labels)
+        if array.size(rvwap_lines) > 0
+            for i = 0 to array.size(rvwap_lines) - 1
+                line line_to_return = array.get(rvwap_lines, i)
+                return_line_to_pool(line_to_return)
+            array.clear(rvwap_lines)
         
         if show_pvwap_yearly and not na(lastYearlyPOC) and not na(thisYearStart)
             plot_previous_vwap_levels('Year', lastYearlyUpper, lastYearlyLower, lastYearlyPOC, thisYearStart, color_pvwap_yearly)
@@ -1583,7 +1636,16 @@ if barstate.islast
             plot_key_open_level(quarterlyOpen, "QO", color_QuarterlyOpen, keylevel_offset, keylevel_format)
         if show_DailyOpen
             plot_key_open_level(dailyOpen, "DO", color_DailyOpen, keylevel_offset, keylevel_format)
-            
+
+        if show_rvwap_label_7d and not na(rvwap_7d)
+            plot_rvwap_level(rvwap_7d, "7D", color_7d, rvwap_label_offset, rvwap_label_format)
+        if show_rvwap_label_30d and not na(rvwap_30d)
+            plot_rvwap_level(rvwap_30d, "30D", color_30d, rvwap_label_offset, rvwap_label_format)
+        if show_rvwap_label_90d and not na(rvwap_90d)
+            plot_rvwap_level(rvwap_90d, "90D", color_90d, rvwap_label_offset, rvwap_label_format)
+        if show_rvwap_label_365d and not na(rvwap_365d)
+            plot_rvwap_level(rvwap_365d, "365D", color_365d, rvwap_label_offset, rvwap_label_format)
+
         cache_yearlyOpen := yearlyOpen
         cache_monthlyOpen := monthlyOpen
         cache_weeklyOpen := weeklyOpen
@@ -1593,6 +1655,10 @@ if barstate.islast
         cache_lastMonthlyPOC := lastMonthlyPOC
         cache_lastQuarterlyPOC := lastQuarterlyPOC
         cache_lastYearlyPOC := lastYearlyPOC
+        cache_rvwap_7d := rvwap_7d
+        cache_rvwap_30d := rvwap_30d
+        cache_rvwap_90d := rvwap_90d
+        cache_rvwap_365d := rvwap_365d
 
 // ---- Plot Monday Range Lines ----
 var line prevMonHighLine = na
