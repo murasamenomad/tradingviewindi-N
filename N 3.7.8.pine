@@ -43,7 +43,7 @@ vwapSource = hlc3
 VWAP1_Settings = 'VWAP #1 Settings (Quarterly Default)'
 VWAP1_Ctl = input.bool(true, title='', group=VWAP_Ctl_Group, inline=VWAP1_Settings)
 Anchor1 = input.string(defval='Quarter', title='', group=VWAP_Ctl_Group, inline=VWAP1_Settings, options=['Day', 'Week', 'Month', 'Quarter', 'Year'])
-VWAP1_Col = input.color(color.new(#7E57C2, 20), title='POC', group=VWAP_Ctl_Group, inline=VWAP1_Settings)
+VWAP1_Col = input.color(color.new(#7E57C2, 50), title='POC', group=VWAP_Ctl_Group, inline=VWAP1_Settings)
 Bands1_Col = input.color(color.new(#7E57C2, 100), title='Bands Border', group=VWAP_Ctl_Group, inline=VWAP1_Settings)
 VWAP1_Bgc = input.color(color.new(#7E57C2, 95), title='Fill', group=VWAP_Ctl_Group, inline=VWAP1_Settings)
 
@@ -51,7 +51,7 @@ VWAP1_Bgc = input.color(color.new(#7E57C2, 95), title='Fill', group=VWAP_Ctl_Gro
 VWAP2_Settings = 'VWAP #2 Settings (Monthly Default)'
 VWAP2_Ctl = input.bool(true, title='', group=VWAP_Ctl_Group, inline=VWAP2_Settings)
 Anchor2 = input.string(defval='Month', title='', group=VWAP_Ctl_Group, inline=VWAP2_Settings, options=['Day', 'Week', 'Month', 'Quarter', 'Year'])
-VWAP2_Col = input.color(color.new(#29B6F6, 20), title='POC', group=VWAP_Ctl_Group, inline=VWAP2_Settings)
+VWAP2_Col = input.color(color.new(#29B6F6, 50), title='POC', group=VWAP_Ctl_Group, inline=VWAP2_Settings)
 Bands2_Col = input.color(color.new(#29B6F6, 100), title='Bands Border', group=VWAP_Ctl_Group, inline=VWAP2_Settings)
 VWAP2_Bgc = input.color(color.new(#29B6F6, 95), title='Fill', group=VWAP_Ctl_Group, inline=VWAP2_Settings)
 
@@ -59,7 +59,7 @@ VWAP2_Bgc = input.color(color.new(#29B6F6, 95), title='Fill', group=VWAP_Ctl_Gro
 VWAP3_Settings = 'VWAP #3 Settings (Weekly Default)'
 VWAP3_Ctl = input.bool(true, title='', group=VWAP_Ctl_Group, inline=VWAP3_Settings)
 Anchor3 = input.string(defval='Week', title='', group=VWAP_Ctl_Group, inline=VWAP3_Settings, options=['Day', 'Week', 'Month', 'Quarter', 'Year'])
-VWAP3_Col = input.color(color.new(#FFCA28, 20), title='POC', group=VWAP_Ctl_Group, inline=VWAP3_Settings)
+VWAP3_Col = input.color(color.new(#FFCA28, 50), title='POC', group=VWAP_Ctl_Group, inline=VWAP3_Settings)
 Bands3_Col = input.color(color.new(#FFCA28, 100), title='Bands Border', group=VWAP_Ctl_Group, inline=VWAP3_Settings)
 VWAP3_Bgc = input.color(color.new(#FFCA28, 95), title='Fill', group=VWAP_Ctl_Group, inline=VWAP3_Settings)
 
@@ -126,7 +126,7 @@ vp_show_historical = input.bool(true, '显示历史VP (Show Historical VP)', inl
 vp_historical_color = input.color(color.new(#757575, 90), '', inline = 'VP_History', group = group_vp)
 // Value Area固定颜色设置为#78909C，不透明度20%
 vp_value_area_color = color.new(#757575, 80)
-vp_max_history = input.int(3, '历史VP数量 (Max History)', 1, 10, tooltip = '最大保存的历史VP数量', group = group_vp)
+vp_max_history = input.int(7, '历史VP数量 (Max History)', 1, 10, tooltip = '最大保存的历史VP数量', group = group_vp)
 vp_show_poc = input.bool(true, '显示VPOC (Show VPOC)', inline = 'VPOC_Display', tooltip = '是否显示成交量控制点 (VPOC)', group = group_vp)
 vp_poc_color = input.color(color.new(#00BCD4, 0), '', inline = 'VPOC_Display', group = group_vp)
 vp_rows = input.int(200, '行数 (Rows)', 10, 500, tooltip = '用于构建成交量分布图的价格级别/行数', group = group_vp)
@@ -141,8 +141,8 @@ group_mob = '市价单气泡 (Market Order Bubbles)'
 enable_mob = input.bool(true, "启用市价单气泡 (Enable MOB)", group = group_mob)
 i_useCustomTf = input.bool(true, "Use Custom Lower Timeframe", group = group_mob, tooltip = "If unchecked, the script will automatically select a lower timeframe.")
 i_lowerTf = input.timeframe("1", "Lower Timeframe for Delta Calc", group = group_mob, tooltip = "The timeframe used to estimate volume delta.")
-i_statLookback = input.int(24, "Statistical Lookback Period", minval = 2, group = group_mob, tooltip = "Bars for calculating average and standard deviation.")
-i_zscoreThreshold = input.float(2.7, "Z-Score Threshold", minval = 0.5, step = 0.1, group = group_mob, tooltip = "Z-Score threshold for bubble detection.")
+i_statLookback = input.int(100, "Statistical Lookback Period", minval = 20, maxval = 200, group = group_mob, tooltip = "Bars for calculating average and standard deviation.")
+i_zscoreThreshold = input.float(3.5, "Z-Score Threshold", minval = 0.5, step = 0.1, group = group_mob, tooltip = "Z-Score threshold for bubble detection.")
 i_maxBubbles = input.int(100, "Max Bubbles to Display", minval = 1, maxval = 500, group = group_mob, tooltip = "Maximum bubbles to keep on chart.")
 i_buyBubbleColor = input.color(color.green, "Buy Bubble Base Color", group = group_mob, tooltip = "Base color for buy bubbles.")
 i_sellBubbleColor = input.color(color.red, "Sell Bubble Base Color", group = group_mob, tooltip = "Base color for sell bubbles.")
@@ -155,13 +155,13 @@ i_daysToShow = input.int(3, "Days to Show", minval = 1, group = group_mob)
 
 // ==== 异常成交量与K线内部剖析 (Abnormal Volume & Intrabar Profile) ====
 group_avp = "异常成交量与剖析 (Abnormal Vol & Profile)"
-avp_ma_period = input.int(20, "成交量MA周期 (Volume MA Period)", minval=1, group=group_avp)
-avp_vol_multiplier = input.float(2.0, "成交量乘数 (Volume Multiplier)", minval=0.1, step=0.1, group=group_avp)
+avp_ma_period = input.int(30, "成交量MA周期 (Volume MA Period)", minval=10, maxval=100, group=group_avp)
+avp_vol_multiplier = input.float(2.5, "成交量乘数 (Volume Multiplier)", minval=1.5, maxval=5.0, step=0.1, group=group_avp)
 avp_ltf_timeframe = input.timeframe("1", "剖析用小周期 (Lower Timeframe for Profile)", group=group_avp)
-avp_profile_rows = input.int(50, "剖析行数 (Profile Rows)", minval=5, maxval=100, group=group_avp)
+avp_profile_rows = input.int(100, "剖析行数 (Profile Rows)", minval=5, maxval=100, group=group_avp)
 avp_abnormal_bull_color = input.color(color.new(color.blue, 0), "异常看涨K线颜色 (Abnormal Bullish Bar Color)", group=group_avp)
 avp_abnormal_bear_color = input.color(color.new(color.red, 0), "异常看跌K线颜色 (Abnormal Bearish Bar Color)", group=group_avp)
-avp_pos_delta_color = input.color(color.new(color.green, 0), "正Delta颜色 (Positive Delta Color)", group=group_avp)
+avp_pos_delta_color = input.color(color.new(color.blue, 0), "正Delta颜色 (Positive Delta Color)", group=group_avp)
 avp_neg_delta_color = input.color(color.new(color.red, 0), "负Delta颜色 (Negative Delta Color)", group=group_avp)
 avp_vpoc_line_width = input.int(2, "VPOC线宽 (VPOC Line Width)", minval=1, group=group_avp)
 // 新增: 为AVP线条添加数量上限控制，以防止绘图对象泄漏
@@ -436,16 +436,16 @@ f_getBubbleTransparency(zscore) =>
         75 // Default transparency
     else
         absZscore = math.abs(zscore)
-        if absZscore < 2.0
-            80 // Very transparent
-        else if absZscore < 2.5
-            40
-        else if absZscore < 3.5
-            80
+        if absZscore < 3.9
+            90 // Very transparent
+        else if absZscore < 4.3
+            70
+        else if absZscore < 4.7
+            90
         else if absZscore < 5.0
-            40
+            70
         else
-            40 // Very opaque (significant event)
+            90 // Very opaque (significant event)
 
 detect_timeframe_changes() => // Function to detect timeframe changes
     current_day = dayofmonth(time)
@@ -1799,8 +1799,8 @@ if showBubble and i_showBubbleText
     label.set_xy(textLabel, bar_index, text_y_pos)
     label.set_yloc(textLabel, yloc.price)
     label.set_text(textLabel, deltaText)
-    label.set_textcolor(textLabel, color.new(color.white, 25))
-    label.set_size(textLabel, size.small)
+    label.set_textcolor(textLabel, color.new(color.white, 50))
+    label.set_size(textLabel, size.tiny)
     label.set_style(textLabel, label.style_none)
 
     text_pointer := (text_pointer + 1) % i_maxBubbles
@@ -1809,10 +1809,10 @@ if showBubble and i_showBubbleText
 
 // 1. 根据默认 f_getBubbleSize 函数的逻辑，计算出每个尺寸的布尔条件
 //    注意：'showBubble' 是包含了Z-Score阈值的主开关
-bool is_tiny_size   = showBubble and math.abs(deltaZscore) < 2.0
-bool is_small_size  = showBubble and math.abs(deltaZscore) >= 2.0 and math.abs(deltaZscore) < 2.5
-bool is_normal_size = showBubble and math.abs(deltaZscore) >= 2.5 and math.abs(deltaZscore) < 3.5
-bool is_large_size  = showBubble and math.abs(deltaZscore) >= 3.5 and math.abs(deltaZscore) < 5.0
+bool is_tiny_size   = showBubble and math.abs(deltaZscore) < 3.5
+bool is_small_size  = showBubble and math.abs(deltaZscore) >= 3.5 and math.abs(deltaZscore) < 4.3
+bool is_normal_size = showBubble and math.abs(deltaZscore) >= 4.3 and math.abs(deltaZscore) < 4.5
+bool is_large_size  = showBubble and math.abs(deltaZscore) >= 4.5 and math.abs(deltaZscore) < 5.0
 bool is_huge_size   = showBubble and math.abs(deltaZscore) >= 5.0
 
 // 2. 准备动态颜色 (保持不变)
