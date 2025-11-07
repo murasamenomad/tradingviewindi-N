@@ -346,20 +346,14 @@ var array<polyline> vp_historical_profiles = array.new<polyline>(0) // 存储历
 var array<polyline> vp_historical_value_areas = array.new<polyline>(0) // 存储历史VP的Value Area
 var int max_historical_profiles = 5 // 最大保存的历史VP图形数量
 
-// 在全局变量区域预分配数组
-var float[] vp_volume_values = array.new_float(0)
-var float[] vp_y_coords = array.new_float(0)
-var int[] vp_x_coords = array.new_int(0)
+// 【修复】预分配最大容量数组（500行上限），避免重复创建
+MAX_VP_ROWS = 500
+var float[] vp_volume_values = array.new_float(MAX_VP_ROWS, 0.0)
+var float[] vp_y_coords = array.new_float(MAX_VP_ROWS, 0.0)
+var int[] vp_x_coords = array.new_int(MAX_VP_ROWS, 0)
 
-// 初始化时预填充数组
-if array.size(vp_volume_values) != vp_rows
-    array.clear(vp_volume_values)
-    array.clear(vp_y_coords)
-    array.clear(vp_x_coords)
-    for i = 0 to vp_rows - 1
-        array.push(vp_volume_values, 0.0)
-        array.push(vp_y_coords, 0.0)
-        array.push(vp_x_coords, 0)
+// 【新增】实际使用的行数（动态控制，不超过预分配容量）
+var int vp_active_rows = 0
 
 var array<chart.point> vp_profile_points_array = array.new<chart.point>() // Stores points for drawing the polyline
 var array<chart.point> vp_value_area_points_array = array.new<chart.point>() // Stores points for drawing value area
@@ -375,6 +369,33 @@ var float vp_last_profile_high = na               // 保存上一个周期的最
 var int vp_value_area_low_idx = na                // Value Area的下界索引
 var int vp_value_area_high_idx = na               // Value Area的上界索引
 
+// =============================================================================
+// ==== BOUNDARY SAFE FUNCTIONS ====
+// =============================================================================
+
+// 【核心修复】安全的数组操作函数，防止越界访问
+safe_set_volume(idx, value) =>
+    bool success = false
+    if idx >= 0 and idx < vp_active_rows
+        array.set(vp_volume_values, idx, value)
+        success := true
+    success
+
+safe_get_volume(idx) =>
+    idx >= 0 and idx < vp_active_rows ? array.get(vp_volume_values, idx) : 0.0
+
+safe_set_y_coord(idx, price) =>
+    bool success = false
+    if idx >= 0 and idx < vp_active_rows
+        array.set(vp_y_coords, idx, price)
+        success := true
+
+safe_set_x_coord(idx, time_val) =>
+    bool success = false
+    if idx >= 0 and idx < vp_active_rows
+        array.set(vp_x_coords, idx, time_val)
+        success := true
+    success
 
 get_quarter(t) => // Function to get the quarter of a given time
     m = month(t)
@@ -887,12 +908,42 @@ f_get_daily_open() => // Function to get daily open price
         d_open := open
     d_open
 
-// 合并所有开盘价请求到一个request.security调用
-yearOpen_ref = use_ref_tf_for_opens ? request.security(syminfo.tickerid, "D", f_get_yearly_open(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on) : na
-monthOpen_ref = use_ref_tf_for_opens ? request.security(syminfo.tickerid, "D", f_get_monthly_open(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on) : na
-quarterOpen_ref = use_ref_tf_for_opens ? request.security(syminfo.tickerid, "D", f_get_quarterly_open(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on) : na
-weekOpen_ref = use_ref_tf_for_opens ? request.security(syminfo.tickerid, "D", f_get_weekly_open(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on) : na
-dailyOpen_ref = use_ref_tf_for_opens ? request.security(syminfo.tickerid, "D", f_get_daily_open(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on) : na
+// @function 一次性获取所有周期的开盘价
+// @returns [年度开盘, 月度开盘, 季度开盘, 周线开盘, 日线开盘]
+f_get_all_opens() =>
+    var float yo = na
+    var float mo = na
+    var float qo = na
+    var float wo = na
+    var float d_open = na
+    
+    // 年度开盘
+    if year(time) != year(time[1]) or na(yo)
+        yo := open
+    
+    // 月度开盘
+    if month(time) != month(time[1]) or na(mo)
+        mo := open
+    
+    // 季度开盘
+    if get_quarter(time) != get_quarter(time[1]) or na(qo)
+        qo := open
+    
+    // 周线开盘（周一）
+    if dayofweek(time) == dayofweek.monday and (dayofweek(time[1]) != dayofweek.monday or na(wo))
+        wo := open
+    
+    // 日线开盘
+    if dayofmonth(time) != dayofmonth(time[1]) or month(time) != month(time[1]) or na(d_open)
+        d_open := open
+        
+    [yo, mo, qo, wo, d_open]
+
+// ---- 优化代码（替换5行独立调用）----
+[yearOpen_ref, monthOpen_ref, quarterOpen_ref, weekOpen_ref, dailyOpen_ref] = if use_ref_tf_for_opens
+    request.security(syminfo.tickerid, "D", f_get_all_opens(), gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on)
+else
+    [na, na, na, na, na]
 
 // =============================================================================
 // ==== CALCULATIONS (Main Script Logic) ====
@@ -1154,29 +1205,28 @@ if vp_enable
 
         // Recalculate profile on new period or on the last bar
         is_new_vp_period = timeframe.change(vp_profile_tf)
-        if is_new_vp_period or barstate.islast
-            // 优化后的数据结构初始化
-            vp_volume_values := array.new_float(vp_rows, 0.0) // 保留成交量数组初始化
 
-            if vp_rows > 0
-                // 预分配内存
-                vp_y_coords := array.new_float(vp_rows)
-                vp_x_coords := array.new_int(vp_rows)
-                
-                // 替换原有价格坐标计算
-                float price_step = (profile_high_price - profile_low_price) / math.max(1, vp_rows - 1)
-                for i = 0 to vp_rows - 1
-                    array.set(vp_y_coords, i, profile_low_price + i * price_step)
-                // 确保最后一个价格准确
-                if vp_rows > 1
-                    array.set(vp_y_coords, vp_rows - 1, profile_high_price)
-                
+        if is_new_vp_period or barstate.islast
+            // 【修复】限制实际行数不超过预分配容量
+            vp_active_rows := math.min(vp_rows, MAX_VP_ROWS)
+    
+            // 【修复】重用预分配数组，用fill清零（性能提升关键）
+            array.fill(vp_volume_values, 0.0)
+            // 只初始化实际需要的行数
+            if vp_active_rows > 0
+                float price_step = (profile_high_price - profile_low_price) / math.max(1, vp_active_rows - 1)
+                for i = 0 to vp_active_rows - 1
+                    // 【修复】使用array.set并确保索引安全
+                    safe_set_y_coord(i, profile_low_price + i * price_step)
+                if vp_active_rows > 1
+                    array.set(vp_y_coords, vp_active_rows - 1, profile_high_price)
+        
                 // 批量设置时间坐标
-                for i = 0 to vp_rows - 1
+                for i = 0 to vp_active_rows - 1
                     array.set(vp_x_coords, i, vp_last_time_profile_start)
 
             // Aggregate volume from lower timeframe data
-            float _price_step = (vp_rows > 1 and profile_high_price > profile_low_price) ? (profile_high_price - profile_low_price) / (vp_rows - 1) : 0.0
+            float _price_step = (vp_active_rows > 1 and profile_high_price > profile_low_price) ? (profile_high_price - profile_low_price) / (vp_active_rows - 1) : 0.0
             float inv_price_step = _price_step != 0 ? 1 / _price_step : 0
 
             int end_bar_offset = barstate.islast ? 0 : 1
@@ -1207,15 +1257,15 @@ if vp_enable
                         float low_offset = (ltf_bar_low - profile_low_price) * inv_price_step
                         float high_offset = (ltf_bar_high - profile_low_price) * inv_price_step
                         int start_row_idx = int(math.max(0, low_offset))
-                        int end_row_idx = int(math.min(vp_rows - 1, high_offset))
+                        int end_row_idx = int(math.min(vp_active_rows - 1, high_offset))
                         
                         // 快速检查是否需要处理
-                        if start_row_idx > vp_rows - 1 or end_row_idx < 0
+                        if start_row_idx > vp_active_rows - 1 or end_row_idx < 0
                             continue
                             
                         // 确保有效范围
                         start_row_idx := math.max(0, start_row_idx)
-                        end_row_idx := math.min(vp_rows - 1, end_row_idx)
+                        end_row_idx := math.min(vp_active_rows - 1, end_row_idx)
                         
                         if start_row_idx <= end_row_idx
                             int num_rows_spanned = end_row_idx - start_row_idx + 1
@@ -1223,26 +1273,41 @@ if vp_enable
                             
                             // 直接累加成交量
                             for j = start_row_idx to end_row_idx
-                                array.set(vp_volume_values, j, array.get(vp_volume_values, j) + vol_per_spanned_row)
-
+                                if j >= 0 and j < vp_active_rows  // 双重保险，确保安全
+                                    current_vol = safe_get_volume(j)
+                                    safe_set_volume(j, current_vol + vol_per_spanned_row)
 
             // Find VPOC (price level with max volume)
-            // Ensure vp_volume_values is not empty before calling array.max, though it's initialized with vp_rows elements.
-            max_volume_for_poc = array.size(vp_volume_values) > 0 ? array.max(vp_volume_values) : 0.0
-            poc_price = array.get(vp_y_coords, array.indexof(vp_volume_values, max_volume_for_poc))
+            // 【修复】手动遍历前 vp_active_rows 个元素找最大值
+            max_volume_for_poc = 0.0
+            int poc_index = na
+            if vp_active_rows > 0
+                // 初始化第一个元素
+                max_volume_for_poc := array.get(vp_volume_values, 0)
+                poc_index := 0
+
+                // 只遍历实际使用的行数
+                for i = 1 to vp_active_rows - 1
+                    float current_vol = array.get(vp_volume_values, i)
+                    if current_vol > max_volume_for_poc
+                        max_volume_for_poc := current_vol
+                        poc_index := i
+
+            poc_price = poc_index >= 0 ? array.get(vp_y_coords, poc_index) : na
+
 
             // 优化后的Value Area计算算法
             vp_value_area_low_idx := na
             vp_value_area_high_idx := na
 
-            // 预先计算总成交量
+            // 只累加实际使用的行数
             float total_volume = 0.0
-            for i = 0 to array.size(vp_volume_values) - 1
+            for i = 0 to vp_active_rows - 1
                 total_volume += array.get(vp_volume_values, i)
 
             // 优化扩展算法
             if total_volume > 0
-                int poc_index = array.indexof(vp_volume_values, max_volume_for_poc)
+                poc_index := array.indexof(vp_volume_values, max_volume_for_poc) 
                 float target_volume = total_volume * 0.68
                 float current_volume = array.get(vp_volume_values, poc_index)
                 
@@ -1252,12 +1317,12 @@ if vp_enable
                 int l_ptr = poc_index - 1
                 int r_ptr = poc_index + 1
                 int loop_count = 0
-                int max_loops = vp_rows * 2  // 防止无限循环
+                int max_loops = vp_active_rows * 2  // 防止无限循环
                 
                 while current_volume < target_volume and loop_count < max_loops
                     loop_count += 1
                     float vol_left = l_ptr >= 0 ? array.get(vp_volume_values, l_ptr) : -1
-                    float vol_right = r_ptr < vp_rows ? array.get(vp_volume_values, r_ptr) : -1
+                    float vol_right = r_ptr < vp_active_rows ? array.get(vp_volume_values, r_ptr) : -1
                     
                     if vol_left > vol_right
                         current_volume += vol_left
@@ -1269,11 +1334,20 @@ if vp_enable
                         r_ptr += 1
             
             // Prepare polyline points
-            // Scaling factor for profile width
-            max_aggregated_volume = array.max(vp_volume_values) > 0 ? array.max(vp_volume_values) : 1
-            time_width_for_profile = 0.0 // Initialize to float for calculations
+            // 【修复】手动遍历前 vp_active_rows 个元素找最大值
+            float max_vol_in_active_range = 0.0
+            if vp_active_rows > 0
+                max_vol_in_active_range := array.get(vp_volume_values, 0)
+                for i = 1 to vp_active_rows - 1
+                    float current_vol = array.get(vp_volume_values, i)
+                    if current_vol > max_vol_in_active_range
+                        max_vol_in_active_range := current_vol
+
+            max_aggregated_volume = max_vol_in_active_range > 0 ? max_vol_in_active_range : 1
             
             base_time_width = float(time[0] - vp_last_time_profile_start) // Ensure float for calculation
+
+            var float time_width_for_profile = 0.0  // 使用 var 使其跨K线保持值
 
             if vp_extend_profile_percent == 0
                 // If extend percent is 0, use the base time width, ensuring it's at least 1
@@ -1290,14 +1364,14 @@ if vp_enable
             scaling_factor = max_aggregated_volume / time_width_for_profile
             scaling_factor := scaling_factor > 0 ? scaling_factor : 1 // Avoid division by zero or negative scaling
 
-            for j = 0 to array.size(vp_volume_values) - 1
+            for j = 0 to vp_active_rows - 1
                 scaled_volume_as_time_offset = math.floor(array.get(vp_volume_values, j) / scaling_factor)
-                array.set(vp_x_coords, j, vp_last_time_profile_start + scaled_volume_as_time_offset)
+                safe_set_x_coord(j, vp_last_time_profile_start + scaled_volume_as_time_offset)
 
             // Build points for polyline
             array.clear(vp_profile_points_array)
             array.push(vp_profile_points_array, chart.point.from_time(vp_last_time_profile_start, profile_low_price))
-            for i = 0 to array.size(vp_x_coords) - 1
+            for i = 0 to vp_active_rows - 1
                 array.push(vp_profile_points_array, chart.point.from_time(array.get(vp_x_coords, i), array.get(vp_y_coords, i)))
             array.push(vp_profile_points_array, chart.point.from_time(vp_last_time_profile_start, profile_high_price))
             
@@ -1564,49 +1638,48 @@ upperBand_5 = plot(upperBand5_plot_value, title='U Band 5', color=isNewPeriod5 ?
 fill(upperBand_5, lowerBand_5, color=isNewPeriod5 ? na : VWAP5_Bgc, title='Fill 5')
 
 if barstate.islast
-    bool force_clean_labels = false 
-    bool labels_need_update_flag = false
+    // 【核心优化】按对象类型分组增量更新，避免全量重建
     
-    if na(cache_yearlyOpen) or na(cache_monthlyOpen) or na(cache_weeklyOpen) or na(cache_quarterlyOpen) or na(cache_dailyOpen) or na(cache_lastWeeklyPOC) or na(cache_lastMonthlyPOC) or na(cache_lastQuarterlyPOC) or na(cache_lastYearlyPOC) or yearlyOpen!= cache_yearlyOpen or monthlyOpen!= cache_monthlyOpen or weeklyOpen!= cache_weeklyOpen or quarterlyOpen!= cache_quarterlyOpen or dailyOpen!= cache_dailyOpen or lastWeeklyPOC!= cache_lastWeeklyPOC or lastMonthlyPOC!= cache_lastMonthlyPOC or lastQuarterlyPOC!= cache_lastQuarterlyPOC or lastYearlyPOC!= cache_lastYearlyPOC or 
-       (show_rvwap_label_7d and rvwap_7d!= cache_rvwap_7d) or
-       (show_rvwap_label_30d and rvwap_30d!= cache_rvwap_30d) or
-       (show_rvwap_label_90d and rvwap_90d!= cache_rvwap_90d) or
-       (show_rvwap_label_365d and rvwap_365d!= cache_rvwap_365d)
-        labels_need_update_flag := true
+    // 初始化各组清理标志
+    bool cleanup_pvwap_needed = false
+    bool cleanup_keyopen_needed = false
+    bool cleanup_rvwap_needed = false
     
-    if labels_need_update_flag or force_clean_labels
-        if array.size(key_open_labels) > 0 
-            for i = 0 to array.size(key_open_labels) - 1
-                label lbl_to_return = array.get(key_open_labels, i)
-                return_label_to_pool(lbl_to_return)
-            array.clear(key_open_labels) 
-        if array.size(key_open_lines) > 0
-            for i = 0 to array.size(key_open_lines) - 1
-                line line_to_return = array.get(key_open_lines, i)
-                return_line_to_pool(line_to_return)
-            array.clear(key_open_lines) 
-            
+    // ==== 1. 检测 pVWAP 组是否需要更新 ====
+    if na(cache_lastYearlyPOC) or lastYearlyPOC != cache_lastYearlyPOC or
+       na(cache_lastQuarterlyPOC) or lastQuarterlyPOC != cache_lastQuarterlyPOC or
+       na(cache_lastMonthlyPOC) or lastMonthlyPOC != cache_lastMonthlyPOC or
+       na(cache_lastWeeklyPOC) or lastWeeklyPOC != cache_lastWeeklyPOC
+        cleanup_pvwap_needed := true
+    
+    // ==== 2. 检测 Key Open 组是否需要更新 ====
+    if na(cache_yearlyOpen) or yearlyOpen != cache_yearlyOpen or
+       na(cache_quarterlyOpen) or quarterlyOpen != cache_quarterlyOpen or
+       na(cache_monthlyOpen) or monthlyOpen != cache_monthlyOpen or
+       na(cache_weeklyOpen) or weeklyOpen != cache_weeklyOpen or
+       na(cache_dailyOpen) or dailyOpen != cache_dailyOpen
+        cleanup_keyopen_needed := true
+    
+    // ==== 3. 检测 RVWAP 组是否需要更新 ====
+    if (show_rvwap_label_7d and (na(cache_rvwap_7d) or rvwap_7d != cache_rvwap_7d)) or
+       (show_rvwap_label_30d and (na(cache_rvwap_30d) or rvwap_30d != cache_rvwap_30d)) or
+       (show_rvwap_label_90d and (na(cache_rvwap_90d) or rvwap_90d != cache_rvwap_90d)) or
+       (show_rvwap_label_365d and (na(cache_rvwap_365d) or rvwap_365d != cache_rvwap_365d))
+        cleanup_rvwap_needed := true
+    
+    // ==== 4. 按需清理和重建 pVWAP 对象 ====
+    if cleanup_pvwap_needed
+        // 清理pVWAP对象（标签+线条）
         if array.size(pvwap_labels) > 0
             for i = 0 to array.size(pvwap_labels) - 1
-                label lbl_to_return = array.get(pvwap_labels, i)
-                return_label_to_pool(lbl_to_return)
-            array.clear(pvwap_labels) 
+                return_label_to_pool(array.get(pvwap_labels, i))
+            array.clear(pvwap_labels)
         if array.size(pvwap_lines) > 0
             for i = 0 to array.size(pvwap_lines) - 1
-                line line_to_return = array.get(pvwap_lines, i)
-                return_line_to_pool(line_to_return)
-            array.clear(pvwap_lines) 
-        if array.size(rvwap_labels) > 0
-            for i = 0 to array.size(rvwap_labels) - 1
-                label lbl_to_return = array.get(rvwap_labels, i)
-                return_label_to_pool(lbl_to_return)
-            array.clear(rvwap_labels)
-        if array.size(rvwap_lines) > 0
-            for i = 0 to array.size(rvwap_lines) - 1
-                line line_to_return = array.get(rvwap_lines, i)
-                return_line_to_pool(line_to_return)
-            array.clear(rvwap_lines)
+                return_line_to_pool(array.get(pvwap_lines, i))
+            array.clear(pvwap_lines)
         
+        // 重建pVWAP对象（仅当有效时）
         if show_pvwap_yearly and not na(lastYearlyPOC) and not na(thisYearStart)
             plot_previous_vwap_levels('Year', lastYearlyUpper, lastYearlyLower, lastYearlyPOC, thisYearStart, color_pvwap_yearly)
         if show_pvwap_quarterly and not na(lastQuarterlyPOC) and not na(thisQuarterStart) and not is_monthly_or_higher_tf
@@ -1616,27 +1689,56 @@ if barstate.islast
         if show_pvwap_weekly and not na(lastWeeklyPOC) and not na(thisWeekStart) and not is_12h_or_higher_tf
             plot_previous_vwap_levels('Week', lastWeeklyUpper, lastWeeklyLower, lastWeeklyPOC, thisWeekStart, color_pvwap_weekly)
         
-        if not use_tf_consistent_pvwap 
-            if VWAP1_Ctl and Anchor1 == 'Quarter' and not is_monthly_or_higher_tf
-                plot_previous_vwap_levels(Anchor1, lastQuarterlyUpper, lastQuarterlyLower, lastQuarterlyPOC, thisQuarterStart, VWAP1_Col)
-            if VWAP2_Ctl and Anchor2 == 'Month' and not is_weekly_or_higher_tf
-                plot_previous_vwap_levels(Anchor2, lastMonthlyUpper, lastMonthlyLower, lastMonthlyPOC, thisMonthStart, VWAP2_Col)
-            if VWAP3_Ctl and Anchor3 == 'Week' and not is_12h_or_higher_tf
-                plot_previous_vwap_levels(Anchor3, lastWeeklyUpper, lastWeeklyLower, lastWeeklyPOC, thisWeekStart, VWAP3_Col)
-            if VWAP5_Ctl and Anchor5 == 'Year'
-                plot_previous_vwap_levels(Anchor5, lastYearlyUpper, lastYearlyLower, lastYearlyPOC, thisYearStart, VWAP5_Col)
-
-        if show_MonthlyOpen
+        // 更新pVWAP相关缓存
+        cache_lastYearlyPOC := lastYearlyPOC
+        cache_lastQuarterlyPOC := lastQuarterlyPOC
+        cache_lastMonthlyPOC := lastMonthlyPOC
+        cache_lastWeeklyPOC := lastWeeklyPOC
+    
+    // ==== 5. 按需清理和重建 Key Open 对象 ====
+    if cleanup_keyopen_needed
+        // 清理Key Open对象（标签+线条）
+        if array.size(key_open_labels) > 0
+            for i = 0 to array.size(key_open_labels) - 1
+                return_label_to_pool(array.get(key_open_labels, i))
+            array.clear(key_open_labels)
+        if array.size(key_open_lines) > 0
+            for i = 0 to array.size(key_open_lines) - 1
+                return_line_to_pool(array.get(key_open_lines, i))
+            array.clear(key_open_lines)
+        
+        // 重建Key Open对象（根据用户选择）
+        if show_MonthlyOpen and not na(monthlyOpen)
             plot_key_open_level(monthlyOpen, "MO", color_MonthlyOpen, keylevel_offset, keylevel_format)
-        if show_YearlyOpen
+        if show_YearlyOpen and not na(yearlyOpen)
             plot_key_open_level(yearlyOpen, "YO", color_YearlyOpen, keylevel_offset, keylevel_format)
-        if show_WeeklyOpen
+        if show_WeeklyOpen and not na(weeklyOpen)
             plot_key_open_level(weeklyOpen, "WO", color_WeeklyOpen, keylevel_offset, keylevel_format)
-        if show_QuarterlyOpen
+        if show_QuarterlyOpen and not na(quarterlyOpen)
             plot_key_open_level(quarterlyOpen, "QO", color_QuarterlyOpen, keylevel_offset, keylevel_format)
-        if show_DailyOpen
+        if show_DailyOpen and not na(dailyOpen)
             plot_key_open_level(dailyOpen, "DO", color_DailyOpen, keylevel_offset, keylevel_format)
-
+        
+        // 更新Key Open相关缓存
+        cache_yearlyOpen := yearlyOpen
+        cache_quarterlyOpen := quarterlyOpen
+        cache_monthlyOpen := monthlyOpen
+        cache_weeklyOpen := weeklyOpen
+        cache_dailyOpen := dailyOpen
+    
+    // ==== 6. 按需清理和重建 RVWAP 对象 ====
+    if cleanup_rvwap_needed
+        // 清理RVWAP对象（标签+线条）
+        if array.size(rvwap_labels) > 0
+            for i = 0 to array.size(rvwap_labels) - 1
+                return_label_to_pool(array.get(rvwap_labels, i))
+            array.clear(rvwap_labels)
+        if array.size(rvwap_lines) > 0
+            for i = 0 to array.size(rvwap_lines) - 1
+                return_line_to_pool(array.get(rvwap_lines, i))
+            array.clear(rvwap_lines)
+        
+        // 重建RVWAP对象（根据用户选择）
         if show_rvwap_label_7d and not na(rvwap_7d)
             plot_rvwap_level(rvwap_7d, "7D", color_7d, rvwap_label_offset, rvwap_label_format)
         if show_rvwap_label_30d and not na(rvwap_30d)
@@ -1645,16 +1747,8 @@ if barstate.islast
             plot_rvwap_level(rvwap_90d, "90D", color_90d, rvwap_label_offset, rvwap_label_format)
         if show_rvwap_label_365d and not na(rvwap_365d)
             plot_rvwap_level(rvwap_365d, "365D", color_365d, rvwap_label_offset, rvwap_label_format)
-
-        cache_yearlyOpen := yearlyOpen
-        cache_monthlyOpen := monthlyOpen
-        cache_weeklyOpen := weeklyOpen
-        cache_quarterlyOpen := quarterlyOpen
-        cache_dailyOpen := dailyOpen
-        cache_lastWeeklyPOC := lastWeeklyPOC
-        cache_lastMonthlyPOC := lastMonthlyPOC
-        cache_lastQuarterlyPOC := lastQuarterlyPOC
-        cache_lastYearlyPOC := lastYearlyPOC
+        
+        // 更新RVWAP相关缓存
         cache_rvwap_7d := rvwap_7d
         cache_rvwap_30d := rvwap_30d
         cache_rvwap_90d := rvwap_90d
