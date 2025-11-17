@@ -304,6 +304,7 @@ var float cache_rvwap_7d = na
 var float cache_rvwap_30d = na
 var float cache_rvwap_90d = na
 var float cache_rvwap_365d = na
+var int last_keyopen_bar_index = na
 
 var int thisWeekStart = na
 var float lastWeeklyLower = na
@@ -1657,9 +1658,11 @@ if barstate.islast
        na(cache_quarterlyOpen) or quarterlyOpen != cache_quarterlyOpen or
        na(cache_monthlyOpen) or monthlyOpen != cache_monthlyOpen or
        na(cache_weeklyOpen) or weeklyOpen != cache_weeklyOpen or
-       na(cache_dailyOpen) or dailyOpen != cache_dailyOpen
+       na(cache_dailyOpen) or dailyOpen != cache_dailyOpen or
+       bar_index != last_keyopen_bar_index
         cleanup_keyopen_needed := true
-    
+        last_keyopen_bar_index := bar_index
+
     // ==== 3. 检测 RVWAP 组是否需要更新 ====
     if (show_rvwap_label_7d and (na(cache_rvwap_7d) or rvwap_7d != cache_rvwap_7d)) or
        (show_rvwap_label_30d and (na(cache_rvwap_30d) or rvwap_30d != cache_rvwap_30d)) or
